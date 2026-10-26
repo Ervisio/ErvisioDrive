@@ -339,6 +339,7 @@ export function TokenManager({ admin }: { admin: boolean }) {
             {t("Resource access")}
             <select
               className="field"
+              aria-label={t("Resource access")}
               value={resourceMode}
               onChange={(e) => setResourceMode(e.target.value)}
             >

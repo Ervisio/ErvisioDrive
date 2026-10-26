@@ -44,4 +44,5 @@ test("English is canonical; Italian supports interpolation without translating f
     'Spostare "report.txt" in "My folder"?',
   );
   assert.equal(translate("en", "Unrecognized label"), "Unrecognized label");
+  assert.equal(translate("it", "constructor"), "constructor");
 });

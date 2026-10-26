@@ -64,7 +64,7 @@ export async function settingsRequest(req: NextRequest, actor: Actor) {
   if (req.method !== "PATCH") return fail(405, "Method not allowed");
   const body = await readJson(req),
     update: Record<string, unknown> = {};
-  if (Object.keys(body).some((k) => !(k in settingsDefaults)))
+  if (Object.keys(body).some((k) => !Object.hasOwn(settingsDefaults, k)))
     return fail(400, "Unknown settings field");
   for (const [key, value] of Object.entries(body)) {
     if (key === "siteName") {

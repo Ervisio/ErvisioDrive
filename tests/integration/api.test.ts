@@ -313,6 +313,19 @@ test("delegation cannot escalate scopes, resources, owner roles or token lifetim
     admin,
   );
   assert.equal((await api("GET", "/me", child.secret)).status, 401);
+  const unrelated = await issue(["files:read"]);
+  const restrictedEditor = await issue(["tokens:update", "files:read"]);
+  assert.equal(
+    (
+      await api(
+        "PATCH",
+        `/tokens/${unrelated.data._id}`,
+        restrictedEditor.secret,
+        { scopes: ["files:read"] },
+      )
+    ).status,
+    403,
+  );
   const createOnly = await issue(["members:create"]);
   assert.equal(
     (
@@ -397,6 +410,46 @@ test("API configuration, expiry, revocation and owner demotion apply immediately
     ),
   );
   assert.equal((await getSettings()).defaultLocale, "en");
+});
+test("member API disable propagates through an administrator-owned delegation chain", async () => {
+  const other = await Member.create({
+    email: "other-admin@example.com",
+    role: "admin",
+  });
+  const parent = await issue([
+    "tokens:create",
+    "tokens:manage:any",
+    "files:read",
+  ]);
+  const created = await api("POST", "/tokens", parent.secret, {
+    name: "other-owner",
+    ownerId: String(other._id),
+    scopes: ["files:read"],
+  });
+  assert.equal(created.status, 201);
+  const child = await created.json();
+  await Member.updateOne({ _id: admin.id }, { $set: { role: "member" } });
+  await settingsRequest(
+    req("PATCH", "/api/settings", { membersCanCreateTokens: false }),
+    admin,
+  );
+  assert.equal(
+    (await api("GET", `/files/${fileId}`, child.secret)).status,
+    403,
+  );
+  await Member.updateOne({ _id: admin.id }, { $set: { role: "admin" } });
+  await settingsRequest(
+    req("PATCH", "/api/settings", { membersCanCreateTokens: true }),
+    admin,
+  );
+  await assert.rejects(
+    () =>
+      settingsRequest(
+        req("PATCH", "/api/settings", JSON.parse('{"__proto__":2}')),
+        admin,
+      ),
+    { status: 400 },
+  );
 });
 test("Cognito requires a verified whitelisted email and pins issuer + subject without trusting groups", async () => {
   process.env.COGNITO_ISSUER =

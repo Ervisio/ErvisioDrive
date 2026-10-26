@@ -8,7 +8,11 @@ export function translate(
   if (locale === "it" && key.startsWith("Missing permission: "))
     return "Permesso mancante: " + key.slice(20);
   let message =
-    locale === "it" ? (italian as Record<string, string>)[key] || key : key;
+    locale === "it"
+      ? Object.hasOwn(italian, key)
+        ? (italian as Record<string, string>)[key]
+        : key
+      : key;
   return message.replace(/\{(\w+)\}/g, (_, name) =>
     String(values[name] ?? `{${name}}`),
   );

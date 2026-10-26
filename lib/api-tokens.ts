@@ -70,7 +70,11 @@ export async function authenticateApiToken(req: NextRequest): Promise<Actor> {
   if (!owner) return fail(401, "The token owner is no longer authorized");
   const settings = await getSettings();
   if (!settings.apiEnabled) return fail(503, "The API is disabled");
-  if (owner.role !== "admin" && !settings.membersCanCreateTokens)
+  if (
+    !settings.membersCanCreateTokens &&
+    (owner.role !== "admin" ||
+      ancestorOwners.some((member) => member.role !== "admin"))
+  )
     return fail(403, "Member API access is disabled");
   await rateLimit(`api:${token._id}`, settings.apiRequestsPerMinute);
   await ApiToken.updateOne(

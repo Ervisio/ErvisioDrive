@@ -6,7 +6,7 @@ docker compose version >/dev/null
 docker info >/dev/null
 interactive=()
 if [[ -t 0 ]]; then interactive=(-it); fi
-docker run --rm "${interactive[@]}" -v "$PWD:/project" -w /project node:22-bookworm-slim node scripts/setup.mjs "$@"
+docker run --rm "${interactive[@]}" --user "$(id -u):$(id -g)" -v "$PWD:/project" -w /project node:22-bookworm-slim node scripts/setup.mjs "$@"
 docker compose up -d --build --wait --wait-timeout 180
 docker compose logs --no-log-prefix bootstrap
 echo 'ErvisioDrive avviato. Configurazione in .env. Per fermarlo: docker compose stop'

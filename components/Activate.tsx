@@ -1,7 +1,10 @@
 "use client";
+import { LanguageSwitch, useI18n } from "@/components/LocaleProvider";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 export function Activate() {
+  const { t, dateLocale } = useI18n();
+
   const [token, setToken] = useState(""),
     [password, setPassword] = useState(""),
     [confirm, setConfirm] = useState(""),
@@ -16,7 +19,7 @@ export function Activate() {
     event.preventDefault();
     setError("");
     if (password !== confirm) {
-      setError("Le password non coincidono");
+      setError(t("Passwords do not match"));
       return;
     }
     setBusy(true);
@@ -27,16 +30,13 @@ export function Activate() {
           body: JSON.stringify({ token, password }),
         }),
         body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || "Attivazione non riuscita");
+      if (!response.ok) throw new Error(body.error || t("Activation failed"));
       setDone(true);
       setPassword("");
       setConfirm("");
       setToken("");
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Errore di connessione",
-      );
+      setError(error instanceof Error ? error.message : t("Connection error"));
     } finally {
       setBusy(false);
     }
@@ -44,29 +44,35 @@ export function Activate() {
   return (
     <main className="grid min-h-screen place-items-center p-6">
       <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#111118] p-8">
+        <div className="mb-4 flex justify-end">
+          <LanguageSwitch />
+        </div>
         <p className="mb-4 text-xs uppercase tracking-widest text-orange-400">
           ErvisioDrive
         </p>
         <h1 className="text-xl font-bold">
-          {done ? "Password impostata" : "Imposta la tua password"}
+          {done ? t("Password set") : t("Set your password")}
         </h1>
         {done ? (
           <>
             <p className="my-5 text-sm text-white/50">
-              Puoi accedere con email e password. Le sessioni precedenti sono
-              state chiuse.
+              {t(
+                "You can now sign in with your email and password. Previous sessions have been closed.",
+              )}
             </p>
             <Link href="/login" className="text-orange-400">
-              Vai al login →
+              {t("Go to sign-in →")}
             </Link>
           </>
         ) : (
           <form onSubmit={submit} className="mt-6 space-y-4">
             <p className="text-sm text-white/40">
-              Usa almeno 12 caratteri. L’invito è monouso e valido per 48 ore.
+              {t(
+                "Use at least 12 characters. Invitations can be used once and expire after 48 hours.",
+              )}
             </p>
             <label className="block text-sm">
-              Nuova password
+              {t("New password")}
               <input
                 type="password"
                 autoComplete="new-password"
@@ -79,7 +85,7 @@ export function Activate() {
               />
             </label>
             <label className="block text-sm">
-              Ripeti password
+              {t("Repeat password")}
               <input
                 type="password"
                 autoComplete="new-password"
@@ -100,10 +106,12 @@ export function Activate() {
               disabled={!token || busy}
               className="w-full rounded-lg bg-orange-500 p-3 text-sm font-semibold disabled:opacity-40"
             >
-              {busy ? "Salvataggio…" : "Imposta password"}
+              {busy ? t("Saving…") : t("Set password")}
             </button>
             <p className="text-xs text-white/30">
-              Se il link è scaduto chiedi un nuovo invito all’amministratore.
+              {t(
+                "If this link has expired, ask your administrator for a new invitation.",
+              )}
             </p>
           </form>
         )}

@@ -1,3 +1,4 @@
+import { getSettings } from "@/lib/settings";
 import { withLocks } from "@/lib/locks";
 import { reserveBytes, releaseBytes } from "@/lib/quota";
 import { NextRequest } from "next/server";
@@ -14,6 +15,7 @@ import connectDB from "@/lib/db/mongoose";
 import {
   type Actor,
   canReadFile,
+  tokenAllowsFolder,
   canReadFolder,
   canManage,
   safeName,
@@ -35,26 +37,24 @@ export const liveFilter = () => ({
   $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
 });
 const id = (value: string) =>
-  mongoose.isValidObjectId(value)
-    ? value
-    : fail(400, "Identificativo non valido");
+  mongoose.isValidObjectId(value) ? value : fail(400, "Invalid identifier");
 async function folderFor(slug: string) {
   if (builtins.has(slug)) return null;
   const folder = await FolderModel.findOne({ slug }).lean<any>();
-  if (!folder) fail(404, "Cartella non trovata");
+  if (!folder) fail(404, "Folder not found");
   return folder;
 }
 export async function accessibleFile(actor: Actor, fileId: string) {
   const file = await FileModel.findById(id(fileId)).lean<any>();
-  if (!file) return fail(404, "File non trovato");
+  if (!file) return fail(404, "File not found");
   const folder = await folderFor(file.folder);
   if (!canReadFile(actor, file, folder))
-    return fail(403, "Accesso al file negato o file scaduto");
+    return fail(403, "File access denied or file expired");
   return file;
 }
 function requireManager(actor: Actor, owner: string) {
   if (!canManage(actor, owner))
-    fail(403, "Solo il proprietario o un admin può gestire gli accessi");
+    fail(403, "Only the owner or an administrator can manage access");
 }
 function expiry(value: unknown) {
   if (value == null || value === "") return null;
@@ -72,7 +72,9 @@ async function access(
   const doc =
     kind === "file" ? await accessibleFile(actor, key) : await folderFor(key);
   if (!doc)
-    return fail(400, "Le categorie automatiche non hanno permessi propri");
+    return fail(400, "Automatic categories do not have separate access rules");
+  if (kind === "folder" && !canReadFolder(actor, doc))
+    fail(403, "Folder access denied");
   requireManager(actor, kind === "file" ? doc.uploadedBy : doc.createdBy);
   const Model: mongoose.Model<any> = kind === "file" ? FileModel : FolderModel;
   const filter = kind === "file" ? { _id: id(key) } : { slug: key };
@@ -97,13 +99,13 @@ async function access(
       : await Member.findOne({
           email: normalizeEmail(body.email || body.username),
         });
-    if (!member) return fail(404, "Email non presente nella whitelist");
+    if (!member) return fail(404, "Email is not whitelisted");
     await Model.updateOne(filter, {
       $addToSet: { allowedUsers: member._id.toString() },
     });
   } else if (req.method === "DELETE") {
     await Model.updateOne(filter, { $pull: { allowedUsers: id(body.userId) } });
-  } else return fail(405, "Metodo non consentito");
+  } else return fail(405, "Method not allowed");
   return json({ success: true });
 }
 
@@ -130,27 +132,85 @@ async function dispatchDriveRequest(
   if (section === "files" && !key && method === "GET") {
     const folders = await FolderModel.find().lean<any[]>();
     const bySlug = new Map(folders.map((f) => [f.slug, f]));
-    const all = await FileModel.find(liveFilter())
+    const visibleFilter: any = { $and: [liveFilter()] };
+    if (actor.role !== "admin") {
+      const deniedFolders = folders
+        .filter(
+          (folder) => !canReadFolder({ ...actor, api: undefined }, folder),
+        )
+        .map((folder) => folder.slug);
+      visibleFilter.$and.push(
+        { folder: { $nin: deniedFolders } },
+        {
+          $or: [
+            { uploadedBy: actor.id },
+            { allowedUsers: actor.id },
+            { allowedUsers: { $size: 0 } },
+            { allowedUsers: { $exists: false } },
+          ],
+        },
+      );
+    }
+    for (const rule of actor.api
+      ? [actor.api, ...(actor.api.constraints || [])]
+      : [])
+      if (rule.resourceMode === "selected")
+        visibleFilter.$and.push({
+          $or: [
+            {
+              _id: {
+                $in: rule.fileIds.map((id) => new mongoose.Types.ObjectId(id)),
+              },
+            },
+            { folder: { $in: rule.folderSlugs } },
+          ],
+        });
+    const counts = await FileModel.aggregate([
+      { $match: visibleFilter },
+      { $group: { _id: "$folder", count: { $sum: 1 } } },
+    ]);
+    const folderCounts: Record<string, number> = { all: 0 };
+    for (const count of counts) {
+      folderCounts[count._id] = count.count;
+      if (builtins.has(count._id)) folderCounts.all += count.count;
+    }
+    const folder = req.nextUrl.searchParams.get("folder") || "all",
+      search = (req.nextUrl.searchParams.get("search") || "").trim();
+    if (search.length > 200) fail(400, "Search is limited to 200 characters");
+    const query: any = { $and: [visibleFilter] };
+    if (folder !== "all") query.$and.push({ folder });
+    else if (!actor.api) query.$and.push({ folder: { $in: [...builtins] } });
+    if (search)
+      query.$and.push({ name: { $regex: escapeRegex(search), $options: "i" } });
+    if (actor.api) {
+      const limit = Number(req.nextUrl.searchParams.get("limit") || 50),
+        cursor = req.nextUrl.searchParams.get("cursor");
+      if (
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 100 ||
+        (cursor && !mongoose.isValidObjectId(cursor))
+      )
+        fail(400, "Invalid pagination");
+      if (cursor)
+        query.$and.push({ _id: { $lt: new mongoose.Types.ObjectId(cursor) } });
+      const page = await FileModel.find(query)
+        .sort({ _id: -1 })
+        .limit(limit + 1)
+        .lean<any[]>();
+      return json({
+        success: true,
+        data: page.slice(0, limit),
+        folderCounts,
+        pagination: {
+          limit,
+          nextCursor: page.length > limit ? String(page[limit - 1]._id) : null,
+        },
+      });
+    }
+    const files = await FileModel.find(query)
       .sort({ createdAt: -1 })
       .lean<any[]>();
-    const visible = all.filter((f) =>
-      canReadFile(actor, f, bySlug.get(f.folder)),
-    );
-    const folderCounts: Record<string, number> = {
-      all: visible.filter((f) => builtins.has(f.folder)).length,
-    };
-    visible.forEach(
-      (f) => (folderCounts[f.folder] = (folderCounts[f.folder] || 0) + 1),
-    );
-    const folder = req.nextUrl.searchParams.get("folder") || "all";
-    const search = (req.nextUrl.searchParams.get("search") || "")
-      .trim()
-      .toLowerCase();
-    const files = visible.filter(
-      (f) =>
-        (folder === "all" ? builtins.has(f.folder) : f.folder === folder) &&
-        f.name.toLowerCase().includes(search),
-    );
     return json({ success: true, data: files, folderCounts });
   }
   if (section === "folders" && !key) {
@@ -162,10 +222,12 @@ async function dispatchDriveRequest(
       });
     }
     if (method === "POST") {
+      if (actor.api?.resourceMode === "selected")
+        fail(403, "Restricted tokens cannot create new top-level folders");
       const body = await readJson(req),
         name = safeName(body.name);
       if (name.length > 80 || String(body.description || "").length > 300)
-        return fail(400, "Nome o descrizione troppo lunghi");
+        return fail(400, "Name or description is too long");
       const base =
         name
           .normalize("NFKD")
@@ -188,13 +250,17 @@ async function dispatchDriveRequest(
     if (action === "access") return access(req, actor, "folder", key);
     return withLocks([`folder:${key}`], async () => {
       const folder = await folderFor(key);
-      if (!folder || !canManage(actor, folder.createdBy))
-        return fail(403, "Operazione non autorizzata");
+      if (
+        !folder ||
+        !canReadFolder(actor, folder) ||
+        !canManage(actor, folder.createdBy)
+      )
+        return fail(403, "Operation not authorized");
       if (method === "DELETE") {
         if (await FileModel.exists({ folder: key }))
           return fail(
             409,
-            "Sposta o elimina tutti i file prima di eliminare la cartella",
+            "Move or delete all files before deleting the folder",
           );
         await FolderModel.deleteOne({ slug: key });
         return json({ success: true });
@@ -214,36 +280,48 @@ async function dispatchDriveRequest(
           ),
         });
       }
-      return fail(405, "Metodo non consentito");
+      return fail(405, "Method not allowed");
     });
   }
   if (section === "upload" && method === "POST") {
+    const settings = await getSettings();
     const max =
-      positiveInteger(process.env.UPLOAD_MAX_MB || 100, 2048) * 1024 * 1024;
+      Math.min(
+        settings.uploadMaxMb ?? 2048,
+        positiveInteger(process.env.UPLOAD_MAX_MB || 100, 2048),
+      ) *
+      1024 *
+      1024;
     const length = Number(req.headers.get("content-length"));
-    if (!length) return fail(411, "Content-Length obbligatorio");
-    if (length > max + 1024 * 1024) return fail(413, "Upload troppo grande");
+    if (!length) return fail(411, "Content-Length is required");
+    if (length > max + 1024 * 1024) return fail(413, "Upload is too large");
     const form = await req.formData(),
       entries = form
         .getAll("files")
         .filter((v): v is File => typeof v !== "string");
     if (!entries.length || entries.length > 20)
-      return fail(400, "Seleziona da 1 a 20 file");
+      return fail(400, "Select between 1 and 20 files");
     if (entries.reduce((n, f) => n + f.size, 0) > max)
-      return fail(413, "Upload troppo grande");
+      return fail(413, "Upload is too large");
     const requested = String(form.get("folder") || "all");
     return withLocks([`folder:${requested}`], async () => {
       let override: string | null = null;
       if (!builtins.has(requested) && requested !== "all") {
         const folder = await folderFor(requested);
         if (!canReadFolder(actor, folder))
-          return fail(403, "Accesso alla cartella negato");
+          return fail(403, "Folder access denied");
         override = requested;
       }
       const seconds = form.get("expiresIn");
       const expiresAt = seconds
         ? new Date(Date.now() + positiveInteger(seconds, 31536000) * 1000)
         : null;
+      for (const entry of entries) {
+        const folder =
+          override || mimeToFolder(resolveMimeType(entry.type, entry.name));
+        if (!tokenAllowsFolder(actor, folder))
+          fail(403, "Upload destination is outside this token’s resources");
+      }
       // Validate the entire batch before writing any file.
       entries.forEach((f) => safeName(f.name));
       const created: any[] = [];
@@ -291,7 +369,7 @@ async function dispatchDriveRequest(
   }
   if (section === "share" && key && method === "DELETE") {
     const share = await ShareModel.findOne({ token: key });
-    if (!share) return fail(404, "Link non trovato");
+    if (!share) return fail(404, "Link not found");
     const file = await accessibleFile(actor, share.fileId);
     requireManager(actor, file.uploadedBy);
     await share.deleteOne();
@@ -310,21 +388,33 @@ async function dispatchDriveRequest(
             .lean(),
         });
       if (method === "POST") {
+        const settings = await getSettings();
+        if (!settings.sharingEnabled) fail(403, "Public sharing is disabled");
         const body = await readJson(req);
+        const shareExpiry = expiry(body.expiresAt);
         if (
-          body.password &&
+          settings.maxShareLifetimeHours &&
+          (!shareExpiry ||
+            shareExpiry.getTime() >
+              Date.now() + settings.maxShareLifetimeHours * 3600000)
+        )
+          fail(400, "A share expiry within the configured maximum is required");
+        if (
+          body.password !== undefined &&
+          body.password !== null &&
           (typeof body.password !== "string" ||
             Buffer.byteLength(body.password) > 72)
         )
-          return fail(400, "Password massimo 72 byte");
+          return fail(400, "Password must not exceed 72 bytes");
         const share = await ShareModel.create({
           fileId: key,
           token: crypto.randomBytes(32).toString("hex"),
           password: body.password ? await bcrypt.hash(body.password, 12) : null,
-          expiresAt: expiry(body.expiresAt),
-          maxDownloads: body.maxDownloads
-            ? positiveInteger(body.maxDownloads, 1000000)
-            : null,
+          expiresAt: shareExpiry,
+          maxDownloads:
+            body.maxDownloads !== undefined && body.maxDownloads !== null
+              ? positiveInteger(body.maxDownloads, 1000000)
+              : null,
           createdBy: actor.id,
         });
         const data = share.toObject();
@@ -333,13 +423,15 @@ async function dispatchDriveRequest(
       }
     }
     if (action === "copy" && method === "POST") {
+      if (!tokenAllowsFolder(actor, file.folder))
+        fail(403, "Copy destination is outside this token’s resources");
       const storedName = generateStoredName(file.name),
         destination = filePath(file.folder, storedName);
       await reserveBytes(file.size);
       try {
         await fs.copyFile(filePath(file.folder, file.storedName), destination);
         const copy = await FileModel.create({
-          name: `Copia di ${file.name}`.slice(0, 255),
+          name: `Copy of ${file.name}`.slice(0, 255),
           storedName,
           folder: file.folder,
           mimeType: file.mimeType,
@@ -370,10 +462,9 @@ async function dispatchDriveRequest(
           "application/xml",
           "application/x-sh",
         ].includes(file.mimeType);
-      if (!editable)
-        return fail(415, "Questo file non è modificabile come testo");
+      if (!editable) return fail(415, "This file cannot be edited as text");
       if (file.size > 2 * 1024 * 1024)
-        return fail(413, "Editor limitato a 2 MB");
+        return fail(413, "The editor is limited to 2 MiB");
       if (method === "GET")
         return json({
           success: true,
@@ -385,9 +476,9 @@ async function dispatchDriveRequest(
       if (method === "PUT") {
         const body = await readJson(req, 12 * 1024 * 1024 + 1024);
         if (typeof body.content !== "string")
-          return fail(400, "Contenuto non valido");
+          return fail(400, "Invalid content");
         if (Buffer.byteLength(body.content) > 2 * 1024 * 1024)
-          return fail(413, "Editor limitato a 2 MB");
+          return fail(413, "The editor is limited to 2 MiB");
         const delta = Buffer.byteLength(body.content) - file.size;
         if (delta > 0) await reserveBytes(delta);
         const location = filePath(file.folder, file.storedName),
@@ -422,8 +513,11 @@ async function dispatchDriveRequest(
             : String(body.folder);
         return withLocks([`folder:${destination}`], async () => {
           const folder = await folderFor(destination);
-          if (!canReadFolder(actor, folder))
-            return fail(403, "Accesso alla cartella negato");
+          if (
+            !tokenAllowsFolder(actor, destination) ||
+            !canReadFolder(actor, folder || { slug: destination })
+          )
+            return fail(403, "Folder access denied");
           if (destination !== file.folder) {
             const from = filePath(file.folder, file.storedName),
               to = filePath(destination, file.storedName);
@@ -474,5 +568,5 @@ async function dispatchDriveRequest(
       return json({ success: true });
     }
   }
-  return fail(404, "Endpoint non trovato");
+  return fail(404, "Endpoint not found");
 }

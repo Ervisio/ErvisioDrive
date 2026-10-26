@@ -12,10 +12,10 @@ export async function GET(
 ) {
   try {
     const actor = await currentActor();
-    if (!actor) return fail(401, "Accesso richiesto");
+    if (!actor) return fail(401, "Sign-in required");
     const { folder, storedName } = await context.params;
     const match = await FileModel.findOne({ folder, storedName }).lean<any>();
-    if (!match) return fail(404, "File non trovato");
+    if (!match) return fail(404, "File not found");
     const file = await accessibleFile(actor, match._id.toString());
     return (
       await prepareFile(

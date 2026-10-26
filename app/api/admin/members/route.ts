@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 async function handler(req: NextRequest) {
   try {
     const actor = await currentActor();
-    if (!actor) return fail(401, "Accedi con un account autorizzato");
+    if (!actor) return fail(401, "Sign in with an authorized account");
     checkOrigin(req);
     if (req.method !== "GET") await rateLimit(`members:${actor.id}`, 30);
     return await membersRequest(req, actor);

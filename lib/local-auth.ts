@@ -38,7 +38,7 @@ export async function activateAccount(req: NextRequest) {
   await rateLimit("activate:global", 20, 60);
   const body = await readJson(req);
   if (typeof body.token !== "string" || !/^[a-f0-9]{64}$/.test(body.token))
-    return fail(400, "Invito non valido o scaduto");
+    return fail(400, "Invitation is invalid or expired");
   validatePassword(body.password);
   const hash = tokenDigest(body.token);
   if (
@@ -47,7 +47,7 @@ export async function activateAccount(req: NextRequest) {
       inviteExpiresAt: { $gt: new Date() },
     }))
   )
-    return fail(400, "Invito non valido o scaduto");
+    return fail(400, "Invitation is invalid or expired");
   const passwordHash = await hashPassword(body.password);
   // Single atomic consume prevents replay and invalidates all existing sessions.
   const member = await Member.findOneAndUpdate(
@@ -59,6 +59,6 @@ export async function activateAccount(req: NextRequest) {
     },
     { returnDocument: "after" },
   );
-  if (!member) return fail(400, "Invito già utilizzato o scaduto");
+  if (!member) return fail(400, "Invitation has already been used or expired");
   return json({ success: true });
 }

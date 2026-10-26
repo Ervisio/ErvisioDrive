@@ -4,7 +4,7 @@ import { fail, json, errorResponse } from "@/lib/http";
 export const dynamic = "force-dynamic";
 export async function GET() {
   try {
-    if (!(await currentActor())) return fail(401, "Accesso richiesto");
+    if (!(await currentActor())) return fail(401, "Sign-in required");
     return json({ success: true, data: await storageUsage() });
   } catch (error) {
     return errorResponse(error);

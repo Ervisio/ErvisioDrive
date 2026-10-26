@@ -1,4 +1,5 @@
 "use client";
+import { useI18n } from "@/components/LocaleProvider";
 import { useState } from "react";
 import useSWR from "swr";
 import { request } from "@/lib/client-request";
@@ -12,6 +13,8 @@ type Member = {
   lastLogin: string | null;
 };
 export function MemberManager() {
+  const { t, dateLocale } = useI18n();
+
   const { data, error, isLoading, mutate } = useSWR(
     "/api/admin/members",
     (url) => request(url).then((r) => r.json()),
@@ -67,18 +70,19 @@ export function MemberManager() {
     await mutate();
   }
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      <h1 className="text-xl font-bold">Utenti e accessi</h1>
+    <div className="page-wrap">
+      <h1 className="text-xl font-bold">{t("Users and access")}</h1>
       <p className="mt-2 text-sm text-white/40">
-        Aggiungi le email autorizzate. La revoca blocca subito le sessioni
-        aperte e i link creati dall’utente.
+        {t(
+          "Add authorized email addresses. Revoking access immediately blocks sessions and links created by that user.",
+        )}
       </p>
       <form
         onSubmit={add}
         className="my-8 flex flex-wrap gap-3 rounded-2xl border border-white/[0.06] bg-[#111118] p-5"
       >
-        <label className="min-w-48 flex-1 text-xs text-white/50">
-          Email autorizzata
+        <label className="min-w-0 basis-full sm:basis-auto flex-1 text-xs text-white/50">
+          {t("Authorized email")}
           <input
             required
             type="email"
@@ -89,34 +93,35 @@ export function MemberManager() {
           />
         </label>
         <label className="text-xs text-white/50">
-          Ruolo
+          {t("Role")}
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
             className="mt-2 block rounded-lg border border-white/10 bg-[#1c1c28] px-3 py-2.5 text-sm text-white"
           >
-            <option value="member">Membro</option>
-            <option value="admin">Amministratore</option>
+            <option value="member">{t("Member")}</option>
+            <option value="admin">{t("Administrator")}</option>
           </select>
         </label>
         <button
           disabled={busy}
           className="self-end rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
         >
-          {busy ? "Aggiunta…" : "Autorizza email"}
+          {busy ? t("Adding…") : t("Authorize email")}
         </button>
       </form>
       {invitation && (
         <div className="mb-6 rounded-xl border border-orange-500/20 bg-orange-500/5 p-5">
           <p className="text-sm text-orange-400">
-            Invito monouso · valido 48 ore
+            {t("One-time invitation · valid for 48 hours")}
           </p>
           <p className="my-3 text-xs text-white/40">
-            Consegnalo privatamente alla persona autorizzata per impostare o
-            reimpostare la password.
+            {t(
+              "Send this privately to the authorized person to set or reset their password.",
+            )}
           </p>
           <input
-            aria-label="Link di invito"
+            aria-label={t("Invitation link")}
             readOnly
             value={invitation}
             className="w-full rounded-lg bg-black/30 p-3 font-mono text-xs"
@@ -126,31 +131,31 @@ export function MemberManager() {
               onClick={() => navigator.clipboard.writeText(invitation)}
               className="text-xs text-orange-400"
             >
-              Copia link
+              {t("Copy link")}
             </button>
             <button
               onClick={() => setInvitation("")}
               className="text-xs text-white/40"
             >
-              Nascondi
+              {t("Hide")}
             </button>
           </div>
         </div>
       )}
-      {isLoading && <p className="text-white/40">Caricamento…</p>}
+      {isLoading && <p className="text-white/40">{t("Loading…")}</p>}
       {error && (
         <p role="alert" className="text-rose-400">
-          Impossibile caricare gli utenti.
+          {t("Unable to load users.")}
         </p>
       )}
       <div className="overflow-x-auto rounded-2xl border border-white/[0.06]">
-        <table className="w-full text-left text-sm">
+        <table className="responsive-table w-full text-left text-sm">
           <thead className="bg-[#111118] text-xs text-white/30">
             <tr>
               <th className="p-4">Account</th>
-              <th>Ruolo</th>
-              <th>Ultimo accesso</th>
-              <th className="p-4 text-right">Azioni</th>
+              <th>{t("Role")}</th>
+              <th>{t("Last sign-in")}</th>
+              <th className="p-4 text-right">{t("Actions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -159,27 +164,27 @@ export function MemberManager() {
                 <td className="p-4">
                   <p>{member.email}</p>
                   <p className="mt-1 text-xs text-white/30">
-                    {member.name || "In attesa del primo accesso"}
+                    {member.name || t("Waiting for first sign-in")}
                   </p>
                 </td>
                 <td className="text-orange-400">
                   {member.isOwner
-                    ? "Proprietario"
+                    ? t("Owner")
                     : member.role === "admin"
-                      ? "Amministratore"
-                      : "Membro"}
+                      ? t("Administrator")
+                      : t("Member")}
                 </td>
                 <td className="text-xs text-white/40">
                   {member.lastLogin
-                    ? new Date(member.lastLogin).toLocaleString("it-IT")
-                    : "Mai"}
+                    ? new Date(member.lastLogin).toLocaleString(dateLocale)
+                    : t("Never")}
                 </td>
-                <td className="space-x-3 p-4 text-right text-xs">
+                <td className="member-actions flex flex-wrap gap-2 p-4 text-xs">
                   <button
                     onClick={() => invite(member)}
-                    className="text-orange-400"
+                    className="secondary-button"
                   >
-                    Invito / reset
+                    {t("Invite / reset")}
                   </button>
                   {!member.isOwner && (
                     <>
@@ -188,14 +193,14 @@ export function MemberManager() {
                         className="text-white/50 hover:text-white"
                       >
                         {member.role === "admin"
-                          ? "Rendi membro"
-                          : "Rendi admin"}
+                          ? t("Make member")
+                          : t("Make admin")}
                       </button>
                       <button
                         onClick={() => setRemove(member)}
                         className="text-rose-400"
                       >
-                        Revoca
+                        {t("Revoke")}
                       </button>
                     </>
                   )}
@@ -207,8 +212,11 @@ export function MemberManager() {
       </div>
       <ConfirmDialog
         open={!!remove}
-        title="Revoca accesso"
-        description={`Revocare l’accesso a ${remove?.email}? Le sessioni e i link condivisi dell’utente smetteranno di funzionare. I file restano nel drive.`}
+        title={t("Revoke access")}
+        description={t(
+          "Revoke access for {email}? Existing sessions and shared links will stop working. Files remain in the drive.",
+          { email: remove?.email ?? "" },
+        )}
         onConfirm={revoke}
         onCancel={() => setRemove(null)}
       />

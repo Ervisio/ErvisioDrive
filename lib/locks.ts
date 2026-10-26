@@ -18,11 +18,12 @@ export async function withLocks<T>(
           { $set: { owner, expiresAt: new Date(Date.now() + 10 * 60 * 1000) } },
           { upsert: true, returnDocument: "after" },
         );
-        if (!result) return fail(409, "File in uso. Riprova tra poco.");
+        if (!result)
+          return fail(409, "File is busy. Please try again shortly.");
         acquired.push(key);
       } catch (error) {
         if ((error as { code?: number }).code === 11000)
-          return fail(409, "File in uso. Riprova tra poco.");
+          return fail(409, "File is busy. Please try again shortly.");
         throw error;
       }
     }

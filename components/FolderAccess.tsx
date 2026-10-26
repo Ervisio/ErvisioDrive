@@ -1,4 +1,5 @@
 "use client";
+import { useI18n } from "@/components/LocaleProvider";
 import useSWR from "swr";
 import { useState } from "react";
 import { AdminModal } from "@/components/admin/AdminModal";
@@ -12,6 +13,8 @@ export function FolderAccess({
   name: string;
   onClose: () => void;
 }) {
+  const { t, dateLocale } = useI18n();
+
   const url = `/api/admin/cdn/folders/${slug}/access`,
     { data, mutate, error } = useSWR(url, (u) =>
       request(u).then((r) => r.json()),
@@ -42,14 +45,21 @@ export function FolderAccess({
     await mutate();
   }
   return (
-    <AdminModal open title={`Accessi · ${name}`} onClose={onClose}>
+    <AdminModal
+      open
+      title={t("Access rules · {name}", { name })}
+      onClose={onClose}
+    >
       <p className="mb-5 text-sm text-white/40">
-        Una lista vuota consente l’accesso a tutti gli utenti autorizzati. Il
-        proprietario e gli admin mantengono l’accesso.
+        {t(
+          "An empty list allows all authorized users. The owner and administrators retain access.",
+        )}
       </p>
       {error ? (
         <p className="text-rose-400">
-          Solo il proprietario o un admin può gestire questi accessi.
+          {t(
+            "Only the owner or an administrator can manage these access rules.",
+          )}
         </p>
       ) : (
         <>
@@ -60,14 +70,14 @@ export function FolderAccess({
               onChange={(e) => setEmail(e.target.value)}
               required
               placeholder="nome@esempio.it"
-              aria-label="Email autorizzata"
+              aria-label={t("Authorized email")}
               className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 p-2 text-sm"
             />
             <button
               disabled={busy}
               className="rounded-lg bg-orange-500 px-4 text-sm disabled:opacity-50"
             >
-              Aggiungi
+              {t("Add")}
             </button>
           </form>
           <ul className="mt-5 space-y-3">
@@ -81,14 +91,14 @@ export function FolderAccess({
                   onClick={() => remove(u.id)}
                   className="text-xs text-rose-400"
                 >
-                  Rimuovi
+                  {t("Remove")}
                 </button>
               </li>
             ))}
           </ul>
           {data?.isPublic && (
             <p className="mt-4 text-xs text-white/30">
-              Accessibile a tutti gli utenti della whitelist.
+              {t("Accessible to all whitelisted users.")}
             </p>
           )}
         </>

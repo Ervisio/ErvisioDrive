@@ -11,7 +11,7 @@ export async function prepareFile(
 ) {
   const handle = await fs
     .open(filePath(file.folder, file.storedName), "r")
-    .catch(() => fail(404, "File non trovato sul server"));
+    .catch(() => fail(404, "File not found on disk"));
   const stat = await handle.stat(),
     range = req.headers.get("range");
   let start = 0,
@@ -21,7 +21,7 @@ export async function prepareFile(
     const match = /^bytes=(\d*)-(\d*)$/.exec(range);
     if (!match || (!match[1] && !match[2])) {
       await handle.close();
-      return fail(416, "Intervallo non valido");
+      return fail(416, "Invalid byte range");
     }
     if (!match[1]) start = Math.max(0, stat.size - Number(match[2]));
     else {
@@ -35,7 +35,7 @@ export async function prepareFile(
       start >= stat.size
     ) {
       await handle.close();
-      return fail(416, "Intervallo non valido");
+      return fail(416, "Invalid byte range");
     }
     status = 206;
   }

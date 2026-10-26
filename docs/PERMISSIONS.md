@@ -1,0 +1,43 @@
+# API permission catalog
+
+Permissions are explicit. Ownership, ACL, current roles and resource envelopes remain required.
+
+| Scope | Capability |
+| --- | --- |
+| `files:list` | List accessible files |
+| `files:read` | Read file metadata |
+| `files:download` | Download file bytes |
+| `files:upload` | Upload files |
+| `files:rename` | Rename files |
+| `files:move` | Move files |
+| `files:expiry` | Change file expiry |
+| `files:delete` | Permanently delete files |
+| `files:copy` | Duplicate files |
+| `files:content:read` | Read editable text |
+| `files:content:write` | Edit text content |
+| `files:access:read` | Read file access rules |
+| `files:access:write` | Change file access rules |
+| `folders:list` | List accessible folders |
+| `folders:read` | Read folder metadata |
+| `folders:create` | Create folders |
+| `folders:update` | Rename folders and edit descriptions |
+| `folders:delete` | Delete empty folders |
+| `folders:access:read` | Read folder access rules |
+| `folders:access:write` | Change folder access rules |
+| `shares:list` | List download links |
+| `shares:create` | Create public download links |
+| `shares:revoke` | Revoke download links |
+| `storage:read` | Read storage usage and quota |
+| `members:list` | List whitelisted accounts |
+| `members:create` | Whitelist accounts |
+| `members:role` | Change account roles |
+| `members:revoke` | Revoke accounts |
+| `members:invite` | Issue password activation/reset invitations |
+| `settings:read` | Read workspace settings |
+| `settings:write` | Change workspace settings |
+| `tokens:list` | List own API tokens |
+| `tokens:create` | Create own API tokens |
+| `tokens:update` | Change own API token permissions |
+| `tokens:revoke` | Revoke own API tokens |
+| `tokens:manage:any` | Manage API tokens belonging to other accounts |
+| `audit:read` | Read the security audit log |

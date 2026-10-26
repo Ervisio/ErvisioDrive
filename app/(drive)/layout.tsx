@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentActor } from "@/lib/auth";
+import { getSettings } from "@/lib/settings";
 import { AppShell } from "@/components/AppShell";
 export const dynamic = "force-dynamic";
 export default async function DriveLayout({
@@ -9,5 +10,9 @@ export default async function DriveLayout({
 }) {
   const actor = await currentActor();
   if (!actor) redirect("/login");
-  return <AppShell actor={actor}>{children}</AppShell>;
+  return (
+    <AppShell actor={actor} siteName={(await getSettings()).siteName}>
+      {children}
+    </AppShell>
+  );
 }

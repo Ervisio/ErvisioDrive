@@ -5,8 +5,8 @@ export async function request(url: string, init?: RequestInit) {
     const body = await response
       .clone()
       .json()
-      .catch(() => ({ error: "Richiesta non riuscita" }));
-    const error = new Error(body.error || "Richiesta non riuscita");
+      .catch(() => ({ error: "Request failed" }));
+    const error = new Error(body.error || "Request failed");
     window.dispatchEvent(
       new CustomEvent("drive-error", { detail: error.message }),
     );

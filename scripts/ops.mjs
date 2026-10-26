@@ -9,7 +9,7 @@ const location = (file) => {
     !/^[a-z0-9][a-z0-9-]{0,99}$/.test(file.folder) ||
     !/^[a-f0-9]{24}(\.[a-z0-9]{1,12})?$/.test(file.storedName)
   )
-    throw new Error("Percorso non valido");
+    throw new Error("Invalid storage path");
   return path.join(root, file.folder, file.storedName);
 };
 async function bootstrap(db) {
@@ -19,7 +19,9 @@ async function bootstrap(db) {
     !process.env.NEXTAUTH_SECRET ||
     process.env.NEXTAUTH_SECRET.length < 32
   )
-    throw new Error("Configura email admin e NEXTAUTH_SECRET tramite setup");
+    throw new Error(
+      "Configure the owner email and NEXTAUTH_SECRET through setup",
+    );
   const members = db.collection("drivemembers");
   await members.createIndex({ email: 1 }, { unique: true });
   await db
@@ -59,13 +61,13 @@ async function bootstrap(db) {
       updatedAt: now,
       lastLogin: null,
     });
-    console.log(`Primo accesso: ${process.env.NEXTAUTH_URL}/activate#${token}`);
+    console.log(`First sign-in: ${process.env.NEXTAUTH_URL}/activate#${token}`);
     console.log(
-      "Apri il link entro 48 ore e imposta la password. Il token non è salvato in chiaro nel database.",
+      "Open this link within 48 hours to set your password. The database stores only its hash.",
     );
   } else
     console.log(
-      "Database già inizializzato. Account e credenziali conservati.",
+      "Database already initialized. Accounts and credentials preserved.",
     );
 }
 async function cleanup(db) {
@@ -100,35 +102,33 @@ async function cleanup(db) {
       const removed = await files.deleteOne({ _id: current._id });
       await shares.deleteMany({ fileId: String(current._id) });
       if (removed.deletedCount)
-        await db
-          .collection("driveusage")
-          .updateOne({ _id: "workspace" }, [
-            {
-              $set: {
-                usedBytes: {
-                  $max: [0, { $subtract: ["$usedBytes", current.size] }],
-                },
+        await db.collection("driveusage").updateOne({ _id: "workspace" }, [
+          {
+            $set: {
+              usedBytes: {
+                $max: [0, { $subtract: ["$usedBytes", current.size] }],
               },
             },
-          ]);
+          },
+        ]);
       count++;
     } finally {
       await locks.deleteOne({ _id: key, owner });
     }
   }
   await shares.deleteMany({ expiresAt: { $ne: null, $lte: new Date() } });
-  console.log(`Pulizia completata: ${count} file scaduti rimossi.`);
+  console.log(`Cleanup complete: ${count} expired files removed.`);
 }
 async function reconcile(db) {
   if (process.env.MAINTENANCE_CONFIRMED !== "true")
     throw new Error(
-      "Ferma app e cleanup; imposta MAINTENANCE_CONFIRMED=true per riconciliare la quota",
+      "Stop app and cleanup; set MAINTENANCE_CONFIRMED=true to reconcile the quota",
     );
   let usedBytes = 0;
   for await (const file of db.collection("cdnfiles").find()) {
     const stat = await fs.stat(location(file)).catch(() => null);
     if (!stat) {
-      console.warn(`File assente: ${file._id}`);
+      console.warn(`Missing file: ${file._id}`);
       continue;
     }
     usedBytes += stat.size;
@@ -141,27 +141,23 @@ async function reconcile(db) {
     .collection("driveusage")
     .updateOne({ _id: "workspace" }, { $set: { usedBytes } }, { upsert: true });
   console.log(
-    `Quota riconciliata: ${usedBytes} byte. Eventuali file orfani non vengono cancellati.`,
+    `Quota reconciled: ${usedBytes} bytes. Orphan files are not deleted.`,
   );
 }
 async function resetOwner(db) {
   const member = await db.collection("drivemembers").findOne({ isOwner: true });
-  if (!member) throw new Error("Proprietario non trovato");
+  if (!member) throw new Error("Owner not found");
   const token = crypto.randomBytes(32).toString("hex");
-  await db
-    .collection("drivemembers")
-    .updateOne(
-      { _id: member._id },
-      {
-        $set: {
-          inviteHash: crypto.createHash("sha256").update(token).digest("hex"),
-          inviteExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-        },
+  await db.collection("drivemembers").updateOne(
+    { _id: member._id },
+    {
+      $set: {
+        inviteHash: crypto.createHash("sha256").update(token).digest("hex"),
+        inviteExpiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
       },
-    );
-  console.log(
-    `Recupero proprietario: ${process.env.NEXTAUTH_URL}/activate#${token}`,
+    },
   );
+  console.log(`Owner recovery: ${process.env.NEXTAUTH_URL}/activate#${token}`);
 }
 try {
   await mongoose.connect(process.env.MONGODB_URI, {
@@ -177,11 +173,11 @@ try {
       try {
         await cleanup(db);
       } catch (error) {
-        console.error("Pulizia non riuscita:", error.message);
+        console.error("Cleanup failed:", error.message);
       }
       await new Promise((resolve) => setTimeout(resolve, 3600000));
     }
-  } else throw new Error("Comando non riconosciuto");
+  } else throw new Error("Unknown command");
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

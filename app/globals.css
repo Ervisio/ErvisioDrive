@@ -252,3 +252,239 @@
     outline-offset: 3px;
   }
 }
+
+/* Shared responsive controls. Layouts use intrinsic widths and safe-area insets. */
+@layer components {
+  .page-wrap {
+    @apply mx-auto w-full max-w-[1600px] p-4 sm:p-6 lg:p-8;
+  }
+  .page-title {
+    @apply text-xl font-bold tracking-tight sm:text-2xl;
+  }
+  .page-description {
+    @apply mt-2 max-w-3xl text-sm leading-relaxed text-white/40;
+  }
+  .panel {
+    @apply min-w-0 rounded-2xl border border-white/[0.06] bg-[#111118] p-4 sm:p-6;
+  }
+  .field-label {
+    @apply block min-w-0 space-y-2 text-sm text-white/60;
+  }
+  .field {
+    @apply block min-h-11 w-full min-w-0 rounded-lg border border-white/10 bg-[#1c1c28] px-3 py-2.5 text-base text-white outline-none focus:border-orange-500/50 sm:text-sm;
+  }
+  .muted {
+    @apply text-xs leading-relaxed text-white/40;
+  }
+  .primary-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .secondary-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white/65 hover:bg-white/10 disabled:opacity-40;
+  }
+  .danger-button {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-300 hover:bg-rose-500/20 disabled:opacity-40;
+  }
+  .setting-row {
+    @apply flex min-w-0 items-center justify-between gap-5 border-b border-white/5 py-4 last:border-0;
+  }
+  .setting-row strong {
+    @apply block text-sm font-medium text-white/80;
+  }
+  .setting-row small {
+    @apply mt-1 block max-w-xl text-xs leading-relaxed text-white/35;
+  }
+  .tab-strip {
+    @apply flex max-w-full gap-2 overflow-x-auto pb-2;
+  }
+  .tab {
+    @apply min-h-11 shrink-0 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-2 text-sm text-white/40;
+  }
+  .tab.active {
+    @apply border-orange-500/25 bg-orange-500/10 text-orange-400;
+  }
+}
+html,
+body {
+  min-width: 0;
+}
+body {
+  overflow-wrap: break-word;
+}
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  touch-action: manipulation;
+}
+.mobile-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(86vw, 320px);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid #ffffff10;
+  background: #0d0d14;
+  color: white;
+  overflow-y: auto;
+}
+.mobile-drawer::backdrop,
+.app-dialog::backdrop {
+  background: #000b;
+  backdrop-filter: blur(5px);
+}
+.app-dialog {
+  width: calc(100% - 2rem);
+  max-height: 90dvh;
+  margin: auto;
+  padding: 0;
+  border: 1px solid #ffffff12;
+  border-radius: 16px;
+  background: #111118;
+  color: white;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.app-dialog[open] {
+  animation: admin-slide-up 0.16s ease-out;
+}
+.modal-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.folder-strip > * {
+  flex-shrink: 0;
+}
+.folder-strip button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+.drive-tools > button,
+.drive-tools > a,
+.drive-tools select {
+  min-height: 44px;
+}
+.drive-tools > div > button {
+  min-height: 44px;
+  min-width: 44px;
+}
+.drive-page pre,
+.drive-page code {
+  overflow-wrap: anywhere;
+}
+@media (hover: none), (pointer: coarse) {
+  .file-actions-overlay {
+    display: none !important;
+  }
+}
+@media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+  .app-dialog {
+    inset: auto 0 0;
+    margin: 0;
+    width: 100%;
+    max-height: calc(100dvh - 0.75rem);
+    border-radius: 18px 18px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .modal-body button {
+    min-height: 44px;
+  }
+  .modal-body input,
+  .modal-body select {
+    min-height: 44px;
+  }
+  .drive-page .drive-table,
+  .drive-page .drive-table tbody,
+  .drive-page .drive-table tr,
+  .drive-page .drive-table td {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .drive-page .drive-table thead {
+    display: none;
+  }
+  .drive-page .drive-table tbody {
+    display: grid;
+    gap: 8px;
+  }
+  .drive-page .drive-table tr {
+    border: 1px solid #ffffff0c;
+    border-radius: 12px;
+    background: #ffffff03;
+    overflow: hidden;
+  }
+  .drive-page .drive-table td {
+    padding: 8px 12px;
+  }
+  .drive-page .drive-table td:nth-child(n + 2):not(:last-child) {
+    display: inline-block;
+    font-size: 11px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .drive-page .drive-table td:nth-child(4),
+  .drive-page .drive-table td:nth-child(5) {
+    display: none !important;
+  }
+  .drive-page .drive-table td:first-child span {
+    max-width: calc(100vw - 112px);
+  }
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .responsive-table thead {
+    display: none;
+  }
+  .responsive-table tr {
+    padding: 12px;
+    border-bottom: 1px solid #ffffff12;
+  }
+  .responsive-table td {
+    padding: 4px 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  .responsive-table td.member-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .responsive-table td.member-actions button {
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid #ffffff10;
+    border-radius: 10px;
+  }
+  .drive-page .grid-cols-2 {
+    min-width: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

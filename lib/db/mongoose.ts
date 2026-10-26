@@ -4,7 +4,7 @@ declare global {
 }
 export default async function connectDB() {
   const uri = process.env.MONGODB_URI;
-  if (!uri) throw new Error("MONGODB_URI non configurato");
+  if (!uri) throw new Error("MONGODB_URI is not configured");
   if (!global.driveConnection)
     global.driveConnection = mongoose.connect(uri, {
       bufferCommands: false,

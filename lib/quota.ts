@@ -4,7 +4,7 @@ import { fail } from "@/lib/http";
 export function quotaBytes() {
   const gb = Number(process.env.STORAGE_QUOTA_GB || 100);
   if (!Number.isFinite(gb) || gb <= 0 || gb > 1000000)
-    throw new Error("STORAGE_QUOTA_GB non valida");
+    throw new Error("Invalid STORAGE_QUOTA_GB");
   return Math.floor(gb * 1024 ** 3);
 }
 async function usageCollection() {
@@ -13,7 +13,7 @@ async function usageCollection() {
 }
 export async function reserveBytes(bytes: number) {
   if (!Number.isSafeInteger(bytes) || bytes < 0)
-    throw new Error("Dimensione non valida");
+    throw new Error("Invalid size");
   const collection = await usageCollection();
   await collection.updateOne(
     { _id: "workspace" as never },
@@ -26,7 +26,10 @@ export async function reserveBytes(bytes: number) {
     { returnDocument: "after" },
   );
   if (!updated)
-    return fail(413, "Quota disco raggiunta. Chiedi all’admin di espanderla.");
+    return fail(
+      413,
+      "Storage quota reached. Ask an administrator to expand it.",
+    );
 }
 export async function releaseBytes(bytes: number) {
   const collection = await usageCollection();

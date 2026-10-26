@@ -17,7 +17,7 @@ export function validatePassword(value: unknown): asserts value is string {
     value.length > 128 ||
     Buffer.byteLength(value) > 512
   )
-    fail(400, "Usa una password da 12 a 128 caratteri");
+    fail(400, "Use a password between 12 and 128 characters");
 }
 export async function hashPassword(password: string) {
   validatePassword(password);

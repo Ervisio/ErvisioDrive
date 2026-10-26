@@ -7,3 +7,5 @@ coverage/
 *.tsbuildinfo
 next-env.d.ts
 *.log
+test-results/
+playwright-report/

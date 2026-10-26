@@ -10,7 +10,7 @@ async function handler(
 ) {
   try {
     const actor = await currentActor();
-    if (!actor) return fail(401, "Accedi con un account autorizzato");
+    if (!actor) return fail(401, "Sign in with an authorized account");
     checkOrigin(req);
     return await driveRequest(req, (await context.params).segments, actor);
   } catch (error) {

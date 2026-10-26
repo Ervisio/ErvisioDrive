@@ -25,7 +25,7 @@ export function encodeEnv(values) {
       .map(([key, value]) => {
         const text = String(value);
         if (/[\r\n'\x00]/.test(text))
-          throw new Error(`Carattere non supportato in ${key}`);
+          throw new Error(`Unsupported character in ${key}`);
         return `${key}='${text}'`;
       })
       .join("\n") + "\n"
@@ -33,7 +33,7 @@ export function encodeEnv(values) {
 }
 export function validate(values) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.BOOTSTRAP_ADMIN_EMAIL))
-    throw new Error("Email admin non valida");
+    throw new Error("Invalid owner email");
   const url = new URL(values.NEXTAUTH_URL);
   if (
     !["http:", "https:"].includes(url.protocol) ||
@@ -43,39 +43,39 @@ export function validate(values) {
     url.hash ||
     url.pathname !== "/"
   )
-    throw new Error("Usa un URL base senza percorso, query o credenziali");
+    throw new Error("Use a base URL without path, query or credentials");
   if (
     url.protocol !== "https:" &&
     !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
   )
     throw new Error(
-      "Per l’accesso remoto usa un URL HTTPS tramite reverse proxy o tunnel",
+      "For remote access, use HTTPS through a reverse proxy or tunnel",
     );
   if (
     !Number.isFinite(Number(values.STORAGE_QUOTA_GB)) ||
     Number(values.STORAGE_QUOTA_GB) <= 0 ||
     Number(values.STORAGE_QUOTA_GB) > 1000000
   )
-    throw new Error("Quota non valida");
+    throw new Error("Invalid quota");
   if (
     !/^\d+$/.test(values.APP_PORT) ||
     Number(values.APP_PORT) < 1 ||
     Number(values.APP_PORT) > 65535
   )
-    throw new Error("Porta non valida");
+    throw new Error("Invalid port");
   if (
     !/^(127\.0\.0\.1|0\.0\.0\.0|\d{1,3}(\.\d{1,3}){3})$/.test(
       values.BIND_ADDRESS,
     )
   )
-    throw new Error("Indirizzo di ascolto non valido");
+    throw new Error("Invalid bind address");
   if (!values.DRIVE_STORAGE_PATH.trim())
-    throw new Error("Cartella disco mancante");
+    throw new Error("Missing storage directory");
   if (!values.NEXTAUTH_SECRET || values.NEXTAUTH_SECRET.length < 32)
-    throw new Error("Secret di sessione non valido");
+    throw new Error("Invalid session secret");
   if (!!values.GOOGLE_CLIENT_ID !== !!values.GOOGLE_CLIENT_SECRET)
     throw new Error(
-      "Configura sia Google Client ID che Client Secret oppure lascia entrambi vuoti",
+      "Set both Google Client ID and Client Secret, or leave both empty",
     );
 }
 
@@ -95,11 +95,11 @@ export async function setup(args = process.argv.slice(2)) {
       !args[i + 1].startsWith("--")
     )
       options[args[i].slice(2)] = args[++i];
-    else throw new Error(`Opzione non valida: ${args[i]}`);
+    else throw new Error(`Invalid option: ${args[i]}`);
   }
   const exists = fs.existsSync(".env"),
     previous = exists ? parseEnv(fs.readFileSync(".env", "utf8")) : {};
-  if (resize && !exists) throw new Error("Esegui prima il setup iniziale");
+  if (resize && !exists) throw new Error("Run the initial setup first");
   const rl = nonInteractive
     ? null
     : createInterface({ input: process.stdin, output: process.stdout });
@@ -114,27 +114,27 @@ export async function setup(args = process.argv.slice(2)) {
     values.NEXTAUTH_SECRET ||= crypto.randomBytes(48).toString("base64");
     if (!resize) {
       values.APP_PORT =
-        options.port || (await ask("Porta locale", values.APP_PORT || "3000"));
+        options.port || (await ask("Local port", values.APP_PORT || "3000"));
       values.NEXTAUTH_URL = (
         options.url ||
         (await ask(
-          "URL del servizio",
+          "Service URL",
           values.NEXTAUTH_URL || `http://localhost:${values.APP_PORT}`,
         ))
       ).replace(/\/$/, "");
       values.BOOTSTRAP_ADMIN_EMAIL = (
         options["admin-email"] ||
-        (await ask("Email primo admin", values.BOOTSTRAP_ADMIN_EMAIL || ""))
+        (await ask("Initial owner email", values.BOOTSTRAP_ADMIN_EMAIL || ""))
       ).toLowerCase();
       values.DRIVE_STORAGE_PATH =
         options["storage-path"] ||
         (await ask(
-          "Cartella file sul disco host (Windows: C:/ErvisioDrive/files)",
+          "Host file directory (Windows: C:/ErvisioDrive/files)",
           values.DRIVE_STORAGE_PATH || "./data/files",
         ));
       values.BIND_ADDRESS =
         options.bind ||
-        (await ask("Indirizzo di ascolto", values.BIND_ADDRESS || "127.0.0.1"));
+        (await ask("Bind address", values.BIND_ADDRESS || "127.0.0.1"));
       values.GOOGLE_CLIENT_ID =
         options["google-client-id"] ?? values.GOOGLE_CLIENT_ID ?? "";
       values.GOOGLE_CLIENT_SECRET =
@@ -145,7 +145,7 @@ export async function setup(args = process.argv.slice(2)) {
     values.STORAGE_QUOTA_GB =
       options.quota ||
       (await ask(
-        "Quota massima file in GiB (nessuna preallocazione)",
+        "Maximum file quota in GiB (no preallocation)",
         values.STORAGE_QUOTA_GB || "100",
       ));
     validate(values);
@@ -154,7 +154,7 @@ export async function setup(args = process.argv.slice(2)) {
     fs.renameSync(".env.tmp", ".env");
     fs.chmodSync(".env", 0o600);
     console.log(
-      `Configurazione salvata. URL: ${values.NEXTAUTH_URL}. Quota: ${values.STORAGE_QUOTA_GB} GiB; spazio usato solo dai file caricati.`,
+      `Configuration saved. URL: ${values.NEXTAUTH_URL}. Quota: ${values.STORAGE_QUOTA_GB} GiB; space is used only as files are uploaded.`,
     );
   } finally {
     rl?.close();

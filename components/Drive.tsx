@@ -1,4 +1,5 @@
 "use client";
+import { useI18n } from "@/components/LocaleProvider";
 
 import { useState, useRef, useCallback, useMemo } from "react";
 import useSWR from "swr";
@@ -102,19 +103,19 @@ type SortField =
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
   { value: "name-asc", label: "A → Z" },
   { value: "name-desc", label: "Z → A" },
-  { value: "size-desc", label: "Peso (↓)" },
-  { value: "size-asc", label: "Peso (↑)" },
-  { value: "date-desc", label: "Recente (↓)" },
-  { value: "date-asc", label: "Recente (↑)" },
+  { value: "size-desc", label: "Size (descending)" },
+  { value: "size-asc", label: "Size (ascending)" },
+  { value: "date-desc", label: "Newest first" },
+  { value: "date-asc", label: "Oldest first" },
 ];
 
 const BUILTIN_FOLDERS = [
-  { slug: "all", label: "Tutti", icon: faFolder },
-  { slug: "images", label: "Immagini", icon: faImage },
+  { slug: "all", label: "All", icon: faFolder },
+  { slug: "images", label: "Images", icon: faImage },
   { slug: "videos", label: "Video", icon: faFilm },
   { slug: "audio", label: "Audio", icon: faMusic },
-  { slug: "documents", label: "Documenti", icon: faFile },
-  { slug: "other", label: "Altri", icon: faFile },
+  { slug: "documents", label: "Documents", icon: faFile },
+  { slug: "other", label: "Other", icon: faFile },
 ] as const;
 
 const fetcher = (url: string) => request(url).then((r) => r.json());
@@ -127,6 +128,8 @@ function FileTypeIcon({
   mimeType: string;
   className?: string;
 }) {
+  const { t, dateLocale } = useI18n();
+
   if (mimeType.startsWith("image/"))
     return <Icon icon={faImage} className={`text-blue-400 ${className}`} />;
   if (mimeType.startsWith("video/"))
@@ -138,6 +141,8 @@ function FileTypeIcon({
 
 /* ─── File thumbnail ──────────────────────────────────────────────────────── */
 function FileThumbnail({ file }: { file: CdnFileItem }) {
+  const { t, dateLocale } = useI18n();
+
   if (file.mimeType.startsWith("image/")) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -157,7 +162,17 @@ function FileThumbnail({ file }: { file: CdnFileItem }) {
 
 /* ─── Main page ───────────────────────────────────────────────────────────── */
 export default function CdnPage() {
+  const { t, dateLocale } = useI18n();
+
   const [folderAccess, setFolderAccess] = useState<CdnFolderItem | null>(null);
+  const [moveSelectFile, setMoveSelectFile] = useState<CdnFileItem | null>(
+    null,
+  );
+  const [moveDestination, setMoveDestination] = useState("");
+  function openMove(file: CdnFileItem) {
+    setMoveSelectFile(file);
+    setMoveDestination(file.folder);
+  }
   const [activeFolder, setActiveFolder] = useState<string>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [search, setSearch] = useState("");
@@ -612,7 +627,7 @@ export default function CdnPage() {
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
   return (
-    <div className="flex h-full flex-col gap-6 p-6">
+    <div className="drive-page page-wrap flex min-w-0 flex-col gap-5">
       {folderAccess && (
         <FolderAccess
           slug={folderAccess.slug}
@@ -623,21 +638,74 @@ export default function CdnPage() {
           }}
         />
       )}
+      <AdminModal
+        open={!!moveSelectFile}
+        title={t("Move file")}
+        onClose={() => setMoveSelectFile(null)}
+        size="md"
+      >
+        <div className="space-y-4">
+          <p className="break-all text-sm text-white/60">
+            {moveSelectFile?.name}
+          </p>
+          <label className="field-label">
+            {t("Destination folder")}
+            <select
+              className="field"
+              value={moveDestination}
+              onChange={(e) => setMoveDestination(e.target.value)}
+            >
+              {BUILTIN_FOLDERS.filter((f) => f.slug !== "all").map((folder) => (
+                <option key={folder.slug} value={folder.slug}>
+                  {t(folder.label)}
+                </option>
+              ))}
+              {customFolders.map((folder) => (
+                <option key={folder.slug} value={folder.slug}>
+                  {folder.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="primary-button w-full"
+            disabled={
+              !moveSelectFile || moveDestination === moveSelectFile.folder
+            }
+            onClick={() => {
+              if (!moveSelectFile) return;
+              setMoveConfirm({
+                file: moveSelectFile,
+                targetSlug: moveDestination,
+                targetName:
+                  customFolders.find((f) => f.slug === moveDestination)?.name ||
+                  t(
+                    BUILTIN_FOLDERS.find((f) => f.slug === moveDestination)
+                      ?.label || moveDestination,
+                  ),
+              });
+              setMoveSelectFile(null);
+            }}
+          >
+            {t("Move")}
+          </button>
+        </div>
+      </AdminModal>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="drive-header flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Icon icon={faHardDrive} className="text-2xl text-orange-400" />
           <div>
             <h1 className="text-xl font-bold">ErvisioDrive</h1>
             <p className="text-xs text-white/50">
-              {folderCounts.all} {folderCounts.all === 1 ? "file" : "files"}{" "}
-              totali
+              {folderCounts.all} {t(folderCounts.all === 1 ? "file" : "files")}{" "}
+              {t("total")}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="drive-tools flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto">
           {/* Search */}
-          <div className="relative">
+          <div className="drive-search relative min-w-0 flex-1 basis-full sm:basis-auto">
             <Icon
               icon={faSearch}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-xs"
@@ -645,8 +713,8 @@ export default function CdnPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Cerca file..."
-              className="h-9 rounded-lg border border-white/[0.04] bg-white/5 pl-8 pr-3 text-sm leading-none outline-none focus:border-orange-500/30 w-52"
+              placeholder={t("Search files…")}
+              className="h-11 w-full rounded-lg border border-white/[0.04] bg-white/5 pl-9 pr-3 text-base sm:text-sm outline-none focus:border-orange-500/30 sm:min-w-48"
             />
           </div>
           {/* Guida link */}
@@ -655,7 +723,7 @@ export default function CdnPage() {
             className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.04] bg-white/5 px-3 text-xs font-medium text-white/50 hover:text-white transition-colors"
           >
             <Icon icon={faBook} />
-            Guida
+            {t("Guide")}
           </Link>
           {/* Sort selector */}
           <div className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 pl-2.5 pr-1 h-9">
@@ -671,7 +739,7 @@ export default function CdnPage() {
                   value={o.value}
                   className="bg-[#16161f] text-white"
                 >
-                  {o.label}
+                  {t(o.label)}
                 </option>
               ))}
             </select>
@@ -685,7 +753,7 @@ export default function CdnPage() {
                   ? "bg-white/15 text-white"
                   : "bg-white/5 text-white/40 hover:text-white"
               }`}
-              title="Vista griglia"
+              title={t("Grid view")}
             >
               <Icon icon={faTableCells} />
             </button>
@@ -696,7 +764,7 @@ export default function CdnPage() {
                   ? "bg-white/15 text-white"
                   : "bg-white/5 text-white/40 hover:text-white"
               }`}
-              title="Vista lista"
+              title={t("List view")}
             >
               <Icon icon={faList} />
             </button>
@@ -707,7 +775,7 @@ export default function CdnPage() {
                   ? "bg-white/15 text-white"
                   : "bg-white/5 text-white/40 hover:text-white"
               }`}
-              title="Vista dettagli"
+              title={t("Details view")}
             >
               <Icon icon={faCircleInfo} />
             </button>
@@ -718,13 +786,13 @@ export default function CdnPage() {
             className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 transition-colors"
           >
             <Icon icon={faUpload} />
-            Carica
+            {t("Upload")}
           </button>
         </div>
       </div>
 
       {/* Folder tabs */}
-      <div className="flex flex-wrap gap-1.5">
+      <div className="folder-strip flex min-w-0 gap-2 overflow-x-auto pb-2">
         {BUILTIN_FOLDERS.map((tab) => (
           <button
             key={tab.slug}
@@ -742,7 +810,7 @@ export default function CdnPage() {
             `}
           >
             <Icon icon={tab.icon} />
-            {tab.label}
+            {t(tab.label)}
             <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] leading-none">
               {folderCounts[tab.slug] ?? 0}
             </span>
@@ -751,7 +819,10 @@ export default function CdnPage() {
 
         {/* Custom folders */}
         {customFolders.map((cf) => (
-          <div key={cf.slug} className="group relative flex items-center">
+          <div
+            key={cf.slug}
+            className="group relative flex shrink-0 items-center"
+          >
             <button
               onClick={() => setActiveFolder(cf.slug)}
               onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
@@ -777,7 +848,7 @@ export default function CdnPage() {
             </button>
             <button
               onClick={() => setFolderAccess(cf)}
-              title="Gestisci accessi cartella"
+              title={t("Manage folder access")}
               className="ml-1 p-1 text-xs text-white/30 hover:text-orange-400"
             >
               <Icon icon={faUsers} />
@@ -785,8 +856,8 @@ export default function CdnPage() {
             {/* Delete custom folder */}
             <button
               onClick={() => setFolderDeleteTarget(cf)}
-              className="ml-0.5 hidden h-5 w-5 items-center justify-center rounded text-rose-400/50 hover:bg-rose-500/[0.06] hover:text-rose-400 group-hover:flex transition-colors"
-              title="Elimina cartella"
+              className="ml-0.5 flex h-11 w-11 items-center justify-center rounded text-rose-400/50 hover:bg-rose-500/[0.06] hover:text-rose-400 group-hover:flex transition-colors"
+              title={t("Delete folder")}
             >
               <Icon icon={faXmark} className="text-[10px]" />
             </button>
@@ -802,7 +873,7 @@ export default function CdnPage() {
           className="flex items-center gap-1.5 rounded-lg border border-dashed border-white/20 px-3 py-1.5 text-xs font-medium text-white/30 hover:border-orange-500/40 hover:text-orange-400 transition-colors"
         >
           <Icon icon={faFolderPlus} />
-          Nuova cartella
+          {t("New folder")}
         </button>
       </div>
 
@@ -816,7 +887,7 @@ export default function CdnPage() {
               className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white transition-colors"
             >
               <Icon icon={faArrowLeft} className="text-xs" />
-              Torna indietro
+              {t("Go back")}
             </button>
             <span className="text-white/20">/</span>
             <div className="flex items-center gap-2 text-sm">
@@ -834,7 +905,7 @@ export default function CdnPage() {
 
       {loadError && (
         <p role="alert" className="text-sm text-rose-400">
-          Impossibile caricare i file. Riprova o accedi di nuovo.
+          {t("Unable to load files. Try again or sign in again.")}
         </p>
       )}
       {/* File grid / list / details */}
@@ -844,9 +915,9 @@ export default function CdnPage() {
         </div>
       ) : viewMode === "details" ? (
         /* ── Details mode (master-detail) ────────────────────────────── */
-        <div className="flex min-h-[400px] gap-4 overflow-hidden">
+        <div className="flex min-w-0 flex-col gap-4 lg:min-h-[400px] lg:flex-row">
           {/* Left: compact file list */}
-          <div className="w-72 shrink-0 overflow-y-auto rounded-xl border border-white/[0.04] bg-[#111118]">
+          <div className="max-h-56 w-full shrink-0 overflow-y-auto rounded-xl lg:max-h-[70dvh] lg:w-72 border border-white/[0.04] bg-[#111118]">
             {/* Folder items when in "all" view */}
             {activeFolder === "all" &&
               customFolders.map((cf) => (
@@ -864,7 +935,7 @@ export default function CdnPage() {
                       {cf.name}
                     </p>
                     <p className="text-[10px] text-white/30">
-                      {folderCounts[cf.slug] ?? 0} file
+                      {folderCounts[cf.slug] ?? 0} {t("files")}
                     </p>
                   </div>
                 </button>
@@ -872,8 +943,8 @@ export default function CdnPage() {
             {files.length === 0 && (
               <p className="px-4 py-6 text-center text-xs text-white/30">
                 {activeFolder === "all" && customFolders.length === 0
-                  ? "Nessun file"
-                  : "Cartella vuota"}
+                  ? t("No files")
+                  : t("Empty folder")}
               </p>
             )}
             {sortedFiles.map((file) => (
@@ -907,6 +978,7 @@ export default function CdnPage() {
                 file={detailFile}
                 onPreview={() => setPreviewFile(detailFile)}
                 onShare={() => setShareFile(detailFile)}
+                onMove={() => openMove(detailFile)}
                 onRename={() => {
                   setRenameFile(detailFile);
                   setRenameName(detailFile.name);
@@ -923,7 +995,7 @@ export default function CdnPage() {
               <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-white/[0.04] bg-[#111118] text-white/20">
                 <Icon icon={faCircleInfo} className="text-4xl" />
                 <p className="text-sm">
-                  Seleziona un file per vedere i dettagli
+                  {t("Select a file to view its details")}
                 </p>
               </div>
             )}
@@ -933,7 +1005,7 @@ export default function CdnPage() {
         !(activeFolder === "all" && customFolders.length > 0) ? (
         <div className="flex flex-col items-center justify-center py-24 text-white/30">
           <Icon icon={faHardDrive} className="mb-3 text-5xl" />
-          <p className="text-sm">Nessun file trovato</p>
+          <p className="text-sm">{t("No files found")}</p>
         </div>
       ) : viewMode === "grid" ? (
         /* ── Grid view ───────────────────────────────────────────────── */
@@ -942,9 +1014,9 @@ export default function CdnPage() {
           {activeFolder === "all" && customFolders.length > 0 && (
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/30">
-                Cartelle
+                {t("Folders")}
               </p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
                 {customFolders.map((cf) => (
                   <FolderCard
                     key={cf.slug}
@@ -961,11 +1033,12 @@ export default function CdnPage() {
             </div>
           )}
           {sortedFiles.length > 0 && (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
               {sortedFiles.map((file) => (
                 <GridCard
                   key={file._id}
                   file={file}
+                  onMove={() => openMove(file)}
                   onRename={() => {
                     setRenameFile(file);
                     setRenameName(file.name);
@@ -993,7 +1066,7 @@ export default function CdnPage() {
           {/* Folder rows (only in "all" view) */}
           {activeFolder === "all" && customFolders.length > 0 && (
             <div className="overflow-hidden rounded-xl border border-white/[0.04]">
-              <table className="w-full text-sm">
+              <table className="drive-table w-full text-sm">
                 <tbody>
                   {customFolders.map((cf) => (
                     <tr
@@ -1025,7 +1098,7 @@ export default function CdnPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="text-xs text-white/30">
-                          {folderCounts[cf.slug] ?? 0} file
+                          {folderCounts[cf.slug] ?? 0} {t("files")}
                         </span>
                       </td>
                     </tr>
@@ -1036,15 +1109,15 @@ export default function CdnPage() {
           )}
           {sortedFiles.length > 0 && (
             <div className="overflow-auto rounded-xl border border-white/[0.04]">
-              <table className="w-full text-sm">
+              <table className="drive-table w-full text-sm">
                 <thead>
                   <tr className="border-b border-white/[0.04] text-left text-xs text-white/40">
                     <th className="px-4 py-3">File</th>
-                    <th className="px-4 py-3">Cartella</th>
-                    <th className="px-4 py-3">Dimensione</th>
-                    <th className="px-4 py-3">Caricato da</th>
-                    <th className="px-4 py-3">Data</th>
-                    <th className="px-4 py-3 text-right">Azioni</th>
+                    <th className="px-4 py-3">{t("Folder")}</th>
+                    <th className="px-4 py-3">{t("Size")}</th>
+                    <th className="px-4 py-3">{t("Uploaded by")}</th>
+                    <th className="px-4 py-3">{t("Date")}</th>
+                    <th className="px-4 py-3 text-right">{t("Actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1052,6 +1125,7 @@ export default function CdnPage() {
                     <ListRow
                       key={file._id}
                       file={file}
+                      onMove={() => openMove(file)}
                       onRename={() => {
                         setRenameFile(file);
                         setRenameName(file.name);
@@ -1088,7 +1162,7 @@ export default function CdnPage() {
             setUploadExpiresIn("");
           }
         }}
-        title="Carica file"
+        title={t("Upload files")}
         size="md"
       >
         <div className="space-y-4">
@@ -1101,8 +1175,8 @@ export default function CdnPage() {
           >
             <Icon icon={faUpload} className="mb-2 text-3xl text-white/30" />
             <p className="text-sm text-white/50">
-              Trascina i file qui oppure{" "}
-              <span className="text-orange-400">clicca per selezionare</span>
+              {t("Drop files here or")}{" "}
+              <span className="text-orange-400">{t("select files")}</span>
             </p>
             <input
               ref={fileInputRef}
@@ -1168,13 +1242,13 @@ export default function CdnPage() {
           <div>
             <label className="mb-1 block text-xs text-white/50">
               <Icon icon={faClockRotateLeft} className="mr-1" />
-              Scadenza automatica (secondi, opzionale)
+              {t("Automatic expiry (seconds, optional)")}
             </label>
             <input
               type="number"
               value={uploadExpiresIn}
               onChange={(e) => setUploadExpiresIn(e.target.value)}
-              placeholder="es. 86400 per 24 ore"
+              placeholder={t("e.g. 86400 for 24 hours")}
               className="w-full rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-sm outline-none focus:border-orange-500/30"
             />
           </div>
@@ -1191,7 +1265,7 @@ export default function CdnPage() {
               }}
               className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
             >
-              Annulla
+              {t("Cancel")}
             </button>
             <button
               onClick={handleUploadSubmit}
@@ -1204,8 +1278,10 @@ export default function CdnPage() {
                 <Icon icon={faUpload} />
               )}
               {uploading
-                ? "Caricamento..."
-                : `Carica ${uploadQueue.length > 0 ? `(${uploadQueue.length})` : ""}`}
+                ? t("Loading…")
+                : t("Upload {count}", {
+                    count: uploadQueue.length ? `(${uploadQueue.length})` : "",
+                  })}
             </button>
           </div>
         </div>
@@ -1215,13 +1291,13 @@ export default function CdnPage() {
       <AdminModal
         open={!!renameFile}
         onClose={() => setRenameFile(null)}
-        title="Rinomina file"
+        title={t("Rename file")}
         size="md"
       >
         <div className="space-y-4">
           <div>
             <label className="mb-1 block text-xs text-white/50">
-              Nuovo nome
+              {t("New name")}
             </label>
             <input
               value={renameName}
@@ -1236,13 +1312,13 @@ export default function CdnPage() {
               onClick={() => setRenameFile(null)}
               className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
             >
-              Annulla
+              {t("Cancel")}
             </button>
             <button
               onClick={handleRename}
               className="rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 transition-colors"
             >
-              Salva
+              {t("Save")}
             </button>
           </div>
         </div>
@@ -1252,7 +1328,7 @@ export default function CdnPage() {
       <AdminModal
         open={!!shareFile}
         onClose={() => setShareFile(null)}
-        title={`Link condivisione — ${shareFile?.name ?? ""}`}
+        title={t("Sharing links · {name}", { name: shareFile?.name ?? "" })}
         size="xl"
       >
         {shareFile && (
@@ -1260,7 +1336,7 @@ export default function CdnPage() {
             {/* Direct link */}
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400/70">
-                Link diretto
+                {t("Direct link")}
               </p>
               <div className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-black/30 px-3 py-2">
                 <span className="flex-1 truncate font-mono text-xs text-white/50">
@@ -1270,45 +1346,45 @@ export default function CdnPage() {
                 <button
                   onClick={copyDirectLink}
                   className="flex-shrink-0 flex items-center gap-1.5 rounded px-2 py-1 text-xs text-emerald-400/70 hover:text-emerald-400 transition-colors"
-                  title="Copia link diretto"
+                  title={t("Copy direct link")}
                 >
                   <Icon
                     icon={copiedDirect ? faCheck : faCopy}
                     className={copiedDirect ? "text-emerald-400" : ""}
                   />
-                  {copiedDirect ? "Copiato!" : "Copia"}
+                  {copiedDirect ? t("Copied!") : t("Copy")}
                 </button>
               </div>
               <p className="text-[10px] text-white/30">
-                URL autenticato — richiede un account autorizzato (
-                {shareFile.mimeType || "file"}). Rispetta i permessi e la
-                scadenza del file.
+                {t("Authenticated URL — requires an authorized account (")}
+                {shareFile.mimeType || "file"}
+                {t("). Respects file permissions and expiry.")}
               </p>
             </div>
 
             {/* Create new token */}
             <div className="rounded-xl border border-white/[0.04] bg-white/5 p-4 space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-white/40">
-                Nuovo link
+                {t("New link")}
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <label className="mb-1 block text-xs text-white/50">
                     <Icon icon={faLock} className="mr-1" />
-                    Password (opzionale)
+                    {t("Password (optional)")}
                   </label>
                   <input
                     type="password"
                     value={sharePassword}
                     onChange={(e) => setSharePassword(e.target.value)}
-                    placeholder="nessuna password"
+                    placeholder={t("no password")}
                     className="w-full rounded-lg border border-white/[0.04] bg-black/30 px-3 py-1.5 text-sm outline-none focus:border-orange-500/30"
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs text-white/50">
                     <Icon icon={faCalendar} className="mr-1" />
-                    Scadenza (opzionale)
+                    {t("Expiry (optional)")}
                   </label>
                   <input
                     type="datetime-local"
@@ -1320,7 +1396,7 @@ export default function CdnPage() {
                 <div>
                   <label className="mb-1 block text-xs text-white/50">
                     <Icon icon={faHashtag} className="mr-1" />
-                    Max download (opzionale)
+                    {t("Maximum downloads (optional)")}
                   </label>
                   <input
                     type="number"
@@ -1338,63 +1414,71 @@ export default function CdnPage() {
                 className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 disabled:opacity-50 transition-colors"
               >
                 <Icon icon={faLink} />
-                {shareCreating ? "Creazione..." : "Crea link"}
+                {shareCreating ? t("Creating…") : t("Create link")}
               </button>
             </div>
 
             {/* Token list */}
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-white/40">
-                Link attivi ({shareTokens.length})
+                {t("Active links (")}
+                {shareTokens.length})
               </p>
               {shareTokens.length === 0 ? (
-                <p className="text-xs text-white/30">Nessun link creato</p>
+                <p className="text-xs text-white/30">{t("No links created")}</p>
               ) : (
-                shareTokens.map((t) => (
+                shareTokens.map((shareToken) => (
                   <div
-                    key={t._id}
+                    key={shareToken._id}
                     className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2"
                   >
                     <div className="flex-1 min-w-0">
                       <p className="truncate font-mono text-xs text-white/60">
-                        {window?.location?.origin}/api/download/{t.token}
+                        {window?.location?.origin}/api/download/
+                        {shareToken.token}
                       </p>
                       <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-white/30">
-                        {t.expiresAt && (
+                        {shareToken.expiresAt && (
                           <span>
                             <Icon icon={faCalendar} className="mr-0.5" />
-                            {new Date(t.expiresAt).toLocaleString("it-IT")}
+                            {new Date(shareToken.expiresAt).toLocaleString(
+                              dateLocale,
+                            )}
                           </span>
                         )}
-                        {t.maxDownloads !== null ? (
+                        {shareToken.maxDownloads !== null ? (
                           <span>
                             <Icon icon={faDownload} className="mr-0.5" />
-                            {t.downloadCount}/{t.maxDownloads}
+                            {shareToken.downloadCount}/{shareToken.maxDownloads}
                           </span>
                         ) : (
                           <span>
                             <Icon icon={faDownload} className="mr-0.5" />
-                            {t.downloadCount} download
+                            {shareToken.downloadCount} download
                           </span>
                         )}
                       </div>
                     </div>
                     <button
-                      onClick={() => copyToClipboard(t.token)}
+                      onClick={() => copyToClipboard(shareToken.token)}
                       className="flex-shrink-0 rounded px-2 py-1 text-xs text-white/50 hover:text-white transition-colors"
-                      title="Copia link"
+                      title={t("Copy link")}
                     >
                       <Icon
-                        icon={copiedToken === t.token ? faCheck : faCopy}
+                        icon={
+                          copiedToken === shareToken.token ? faCheck : faCopy
+                        }
                         className={
-                          copiedToken === t.token ? "text-emerald-400" : ""
+                          copiedToken === shareToken.token
+                            ? "text-emerald-400"
+                            : ""
                         }
                       />
                     </button>
                     <button
-                      onClick={() => handleRevokeToken(t.token)}
+                      onClick={() => handleRevokeToken(shareToken.token)}
                       className="flex-shrink-0 rounded px-2 py-1 text-xs text-rose-400/60 hover:text-rose-400 transition-colors"
-                      title="Revoca"
+                      title={t("Revoke")}
                     >
                       <Icon icon={faTrash} />
                     </button>
@@ -1440,7 +1524,7 @@ export default function CdnPage() {
               <div className="flex flex-col items-center gap-3 py-12 text-white/30">
                 <Icon icon={faFile} className="text-5xl" />
                 <p className="text-sm">
-                  Anteprima non disponibile per questo tipo di file
+                  {t("Preview is not available for this file type")}
                 </p>
                 <a
                   href={previewFile.url}
@@ -1448,7 +1532,7 @@ export default function CdnPage() {
                   className="mt-2 flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm text-white/70 hover:bg-white/20 hover:text-white transition-colors"
                 >
                   <Icon icon={faDownload} />
-                  Scarica il file
+                  {t("Download file")}
                 </a>
               </div>
             )}
@@ -1465,19 +1549,19 @@ export default function CdnPage() {
           setFolderCreateDesc("");
           setFolderCreateError(null);
         }}
-        title="Nuova cartella"
+        title={t("New folder")}
         size="md"
       >
         <div className="space-y-4">
           <div>
             <label className="mb-1 block text-xs text-white/50">
-              Nome cartella *
+              {t("Folder name *")}
             </label>
             <input
               value={folderCreateName}
               onChange={(e) => setFolderCreateName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleFolderCreate()}
-              placeholder="es. Screenshot, Assets FiveM..."
+              placeholder={t("e.g. Screenshots, FiveM assets…")}
               autoFocus
               className="w-full rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-sm outline-none focus:border-orange-500/30"
             />
@@ -1496,24 +1580,24 @@ export default function CdnPage() {
           </div>
           <div>
             <label className="mb-1 block text-xs text-white/50">
-              Descrizione (opzionale)
+              {t("Description (optional)")}
             </label>
             <input
               value={folderCreateDesc}
               onChange={(e) => setFolderCreateDesc(e.target.value)}
-              placeholder="A cosa serve questa cartella?"
+              placeholder={t("What is this folder for?")}
               className="w-full rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-sm outline-none focus:border-orange-500/30"
             />
           </div>
           {folderCreateError && (
-            <p className="text-xs text-rose-400">{folderCreateError}</p>
+            <p className="text-xs text-rose-400">{t(folderCreateError)}</p>
           )}
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setFolderCreateOpen(false)}
               className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
             >
-              Annulla
+              {t("Cancel")}
             </button>
             <button
               onClick={handleFolderCreate}
@@ -1525,7 +1609,7 @@ export default function CdnPage() {
               ) : (
                 <Icon icon={faPlus} />
               )}
-              Crea
+              {t("Create")}
             </button>
           </div>
         </div>
@@ -1539,7 +1623,7 @@ export default function CdnPage() {
           setAccessAddInput("");
           setAccessAddError(null);
         }}
-        title={`Accesso — ${accessFile?.name ?? ""}`}
+        title={t("Access · {name}", { name: accessFile?.name ?? "" })}
         size="md"
       >
         {accessFile && (
@@ -1554,14 +1638,16 @@ export default function CdnPage() {
             >
               <Icon icon={accessIsPublic ? faUsers : faLock} />
               {accessIsPublic
-                ? "Accessibile a tutti gli utenti autorizzati"
-                : `File privato — solo ${accessUsers.length} ${accessUsers.length === 1 ? "utente autorizzato" : "utenti autorizzati"}`}
+                ? t("Accessible to all authorized users")
+                : t("Restricted file · {count} authorized users", {
+                    count: accessUsers.length,
+                  })}
             </div>
 
             {/* Add user */}
             <div>
               <label className="mb-1 block text-xs text-white/50">
-                Aggiungi utente (email autorizzata)
+                {t("Add user (authorized email)")}
               </label>
               <div className="flex gap-2">
                 <input
@@ -1584,18 +1670,21 @@ export default function CdnPage() {
                 </button>
               </div>
               {accessAddError && (
-                <p className="mt-1 text-xs text-rose-400">{accessAddError}</p>
+                <p className="mt-1 text-xs text-rose-400">
+                  {t(accessAddError)}
+                </p>
               )}
             </div>
 
             {/* User list */}
             <div className="space-y-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-white/30">
-                Utenti autorizzati ({accessUsers.length})
+                {t("Authorized users (")}
+                {accessUsers.length})
               </p>
               {accessUsers.length === 0 ? (
                 <p className="text-xs text-white/30">
-                  Tutti gli utenti autorizzati
+                  {t("All authorized users")}
                 </p>
               ) : (
                 accessUsers.map((u) => (
@@ -1612,7 +1701,7 @@ export default function CdnPage() {
                     <button
                       onClick={() => handleAccessRevoke(u.id)}
                       className="rounded p-1.5 text-rose-400/50 hover:bg-rose-500/[0.06] hover:text-rose-400 transition-colors"
-                      title="Revoca accesso"
+                      title={t("Revoke access")}
                     >
                       <Icon icon={faUserMinus} className="text-xs" />
                     </button>
@@ -1631,17 +1720,20 @@ export default function CdnPage() {
           setFolderDeleteTarget(null);
           setFolderDeleteError(null);
         }}
-        title={`Elimina cartella "${folderDeleteTarget?.name ?? ""}"`}
+        title={t('Delete folder "{name}"', {
+          name: folderDeleteTarget?.name ?? "",
+        })}
         size="md"
       >
         {folderDeleteTarget && (
           <div className="space-y-4">
             <p className="text-sm text-white/60">
-              La cartella verrà eliminata. I file al suo interno devono essere
-              spostati o eliminati prima.
+              {t(
+                "This folder will be deleted. Move or delete its files first.",
+              )}
             </p>
             {folderDeleteError && (
-              <p className="text-sm text-rose-400">{folderDeleteError}</p>
+              <p className="text-sm text-rose-400">{t(folderDeleteError)}</p>
             )}
             <div className="flex justify-end gap-2">
               <button
@@ -1651,13 +1743,13 @@ export default function CdnPage() {
                 }}
                 className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
               >
-                Annulla
+                {t("Cancel")}
               </button>
               <button
                 onClick={handleFolderDelete}
                 className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400 transition-colors"
               >
-                Elimina
+                {t("Delete")}
               </button>
             </div>
           </div>
@@ -1667,9 +1759,12 @@ export default function CdnPage() {
       {/* ── Delete confirm ───────────────────────────────────────────────── */}
       <ConfirmDialog
         open={!!deleteFile}
-        title="Elimina file"
-        description={`Sei sicuro di voler eliminare "${deleteFile?.name}"? L'azione è irreversibile e tutti i link di condivisione associati saranno invalidati.`}
-        confirmLabel="Elimina"
+        title={t("Delete file")}
+        description={t(
+          'Delete "{name}" permanently? All its sharing links will be invalidated.',
+          { name: deleteFile?.name ?? "" },
+        )}
+        confirmLabel={t("Delete")}
         onConfirm={handleDelete}
         onCancel={() => setDeleteFile(null)}
         dangerous
@@ -1678,9 +1773,12 @@ export default function CdnPage() {
       {/* ── Move confirm dialog ───────────────────────────────────────────── */}
       <ConfirmDialog
         open={!!moveConfirm}
-        title="Sposta file"
-        description={`Spostare "${moveConfirm?.file.name}" nella cartella "${moveConfirm?.targetName}"?`}
-        confirmLabel="Sposta"
+        title={t("Move file")}
+        description={t('Move "{name}" to "{folder}"?', {
+          name: moveConfirm?.file.name ?? "",
+          folder: moveConfirm?.targetName ?? "",
+        })}
+        confirmLabel={t("Move")}
         onConfirm={handleMoveFile}
         onCancel={() => {
           setMoveConfirm(null);
@@ -1695,7 +1793,7 @@ export default function CdnPage() {
         onClose={() => {
           if (!textContentSaving) setEditTextFile(null);
         }}
-        title={`Modifica — ${editTextFile?.name ?? ""}`}
+        title={t("Edit · {name}", { name: editTextFile?.name ?? "" })}
         size="xl"
       >
         {editTextFile && (
@@ -1719,6 +1817,7 @@ export default function CdnPage() {
 /* ─── Grid card ───────────────────────────────────────────────────────────── */
 function GridCard({
   file,
+  onMove,
   onRename,
   onDelete,
   onCopy,
@@ -1730,6 +1829,7 @@ function GridCard({
   onDragEnd,
 }: {
   file: CdnFileItem;
+  onMove: () => void;
   onRename: () => void;
   onDelete: () => void;
   onCopy: () => void;
@@ -1740,125 +1840,177 @@ function GridCard({
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
+  const { t, dateLocale } = useI18n();
+
   const [hover, setHover] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
-    <div
-      className="group relative flex flex-col overflow-hidden rounded-xl border border-white/[0.04] bg-white/5 hover:border-orange-500/20 transition-colors cursor-grab active:cursor-grabbing"
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onDoubleClick={onPreview}
-    >
-      {/* Thumbnail */}
-      <div className="relative h-32 bg-black/20">
-        <FileThumbnail file={file} />
-        {hover && (
-          <div className="absolute inset-0 flex items-center justify-center flex-wrap gap-1.5 bg-black/60 backdrop-blur-sm p-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPreview();
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-              title="Anteprima"
-            >
-              <Icon icon={faEye} />
-            </button>
-            {onEdit && (
+    <>
+      <div
+        className="group relative flex flex-col overflow-hidden rounded-xl border border-white/[0.04] bg-white/5 hover:border-orange-500/20 transition-colors cursor-grab active:cursor-grabbing"
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        onDoubleClick={onPreview}
+      >
+        {/* Thumbnail */}
+        <div className="relative h-32 bg-black/20">
+          <button
+            className="h-full w-full"
+            onClick={onPreview}
+            aria-label={t("Preview")}
+          >
+            <FileThumbnail file={file} />
+          </button>
+          {hover && (
+            <div className="file-actions-overlay absolute inset-0 flex items-center justify-center flex-wrap gap-1.5 bg-black/60 backdrop-blur-sm p-2">
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onEdit();
+                  onPreview();
                 }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-blue-400/80 hover:bg-blue-500/20 hover:text-blue-300 transition-colors"
-                title="Modifica testo"
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+                title={t("Preview")}
               >
-                <Icon icon={faFileCode} />
+                <Icon icon={faEye} />
               </button>
-            )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onAccess();
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-              title="Gestione accesso"
-            >
-              <Icon icon={faUsers} />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onShare();
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-              title="Condividi"
-            >
-              <Icon icon={faLink} />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onRename();
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-              title="Rinomina"
-            >
-              <Icon icon={faPen} />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCopy();
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-              title="Duplica"
-            >
-              <Icon icon={faCopy} />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-rose-400/70 hover:bg-rose-500/[0.06] hover:text-rose-400 transition-colors"
-              title="Elimina"
-            >
-              <Icon icon={faTrash} />
-            </button>
+              {onEdit && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit();
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-blue-400/80 hover:bg-blue-500/20 hover:text-blue-300 transition-colors"
+                  title={t("Edit text")}
+                >
+                  <Icon icon={faFileCode} />
+                </button>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAccess();
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+                title={t("Manage access")}
+              >
+                <Icon icon={faUsers} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShare();
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+                title={t("Share")}
+              >
+                <Icon icon={faLink} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRename();
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+                title={t("Rename")}
+              >
+                <Icon icon={faPen} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCopy();
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+                title={t("Duplicate")}
+              >
+                <Icon icon={faCopy} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-rose-400/70 hover:bg-rose-500/[0.06] hover:text-rose-400 transition-colors"
+                title={t("Delete")}
+              >
+                <Icon icon={faTrash} />
+              </button>
+            </div>
+          )}
+          {/* Drag indicator */}
+          <div className="absolute top-1 left-1 hidden group-hover:flex items-center justify-center h-5 w-5 rounded bg-black/40">
+            <Icon icon={faArrowsAlt} className="text-[9px] text-white/40" />
           </div>
-        )}
-        {/* Drag indicator */}
-        <div className="absolute top-1 left-1 hidden group-hover:flex items-center justify-center h-5 w-5 rounded bg-black/40">
-          <Icon icon={faArrowsAlt} className="text-[9px] text-white/40" />
+          {/* Expiry badge */}
+          {file.expiresAt && new Date(file.expiresAt) > new Date() && (
+            <span className="absolute bottom-1 right-1 rounded bg-yellow-500/80 px-1 py-0.5 text-[9px] font-bold text-black">
+              EXP
+            </span>
+          )}
         </div>
-        {/* Expiry badge */}
-        {file.expiresAt && new Date(file.expiresAt) > new Date() && (
-          <span className="absolute bottom-1 right-1 rounded bg-yellow-500/80 px-1 py-0.5 text-[9px] font-bold text-black">
-            EXP
-          </span>
-        )}
-      </div>
 
-      {/* Info */}
-      <div className="p-2">
-        <p
-          className="truncate text-xs font-medium text-white/80"
-          title={file.name}
+        {/* Info */}
+        <div className="p-2">
+          <p
+            className="truncate text-xs font-medium text-white/80"
+            title={file.name}
+          >
+            {file.name}
+          </p>
+          <p className="mt-0.5 text-[10px] text-white/30">
+            {formatBytes(file.size)}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-white/20">
+            <Icon icon={faUser} className="shrink-0" />
+            <span className="truncate">{file.uploadedByUsername}</span>
+          </p>
+        </div>
+        <button
+          onClick={() => setMenuOpen(true)}
+          className="flex min-h-11 w-full items-center justify-center gap-2 border-t border-white/5 bg-white/[0.02] px-3 text-sm text-orange-400"
+          aria-label={t("File actions")}
         >
-          {file.name}
-        </p>
-        <p className="mt-0.5 text-[10px] text-white/30">
-          {formatBytes(file.size)}
-        </p>
-        <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-white/20">
-          <Icon icon={faUser} className="shrink-0" />
-          <span className="truncate">{file.uploadedByUsername}</span>
-        </p>
+          ⋯ {t("Actions")}
+        </button>
       </div>
-    </div>
+      <AdminModal
+        open={menuOpen}
+        title={file.name}
+        onClose={() => setMenuOpen(false)}
+        size="md"
+      >
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {[
+            { label: "Preview", action: onPreview },
+            { label: "Edit text", action: onEdit },
+            { label: "Manage access", action: onAccess },
+            { label: "Share", action: onShare },
+            { label: "Rename", action: onRename },
+            { label: "Move", action: onMove },
+            { label: "Duplicate", action: onCopy },
+            { label: "Delete", action: onDelete },
+          ]
+            .filter((item) => item.action)
+            .map((item) => (
+              <button
+                key={item.label}
+                className={
+                  item.label === "Delete" ? "danger-button" : "secondary-button"
+                }
+                onClick={() => {
+                  setMenuOpen(false);
+                  item.action?.();
+                }}
+              >
+                {t(item.label)}
+              </button>
+            ))}
+        </div>
+      </AdminModal>
+    </>
   );
 }
 
@@ -1880,6 +2032,8 @@ function FolderCard({
   onDrop?: (e: React.DragEvent) => void;
   dragOver?: boolean;
 }) {
+  const { t, dateLocale } = useI18n();
+
   return (
     <button
       onClick={onClick}
@@ -1903,10 +2057,12 @@ function FolderCard({
         >
           {folder.name}
         </p>
-        <p className="mt-0.5 text-[10px] text-white/30">{count} file</p>
+        <p className="mt-0.5 text-[10px] text-white/30">
+          {count} {t(count === 1 ? "file" : "files")}
+        </p>
         {folder.allowedUsers.length > 0 && (
           <span className="mt-1 inline-flex items-center gap-1 text-[9px] text-orange-400/50">
-            <Icon icon={faLock} /> privata
+            <Icon icon={faLock} /> {t("private")}
           </span>
         )}
       </div>
@@ -1919,6 +2075,7 @@ function DetailsPane({
   file,
   onPreview,
   onShare,
+  onMove,
   onRename,
   onDelete,
   onAccess,
@@ -1927,11 +2084,14 @@ function DetailsPane({
   file: CdnFileItem;
   onPreview: () => void;
   onShare: () => void;
+  onMove: () => void;
   onRename: () => void;
   onDelete: () => void;
   onAccess: () => void;
   onEdit?: () => void;
 }) {
+  const { t, dateLocale } = useI18n();
+
   const [copied, setCopied] = useState(false);
   const copy = () => {
     navigator.clipboard.writeText(file.url);
@@ -1951,30 +2111,30 @@ function DetailsPane({
         </h3>
         <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-xs">
           <div>
-            <p className="mb-0.5 text-white/30">Tipo MIME</p>
+            <p className="mb-0.5 text-white/30">{t("MIME type")}</p>
             <p className="truncate font-mono text-white/70">{file.mimeType}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">Dimensione</p>
+            <p className="mb-0.5 text-white/30">{t("Size")}</p>
             <p className="text-white/70">{formatBytes(file.size)}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">Cartella</p>
+            <p className="mb-0.5 text-white/30">{t("Folder")}</p>
             <p className="capitalize text-white/70">{file.folder}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">Caricato da</p>
+            <p className="mb-0.5 text-white/30">{t("Uploaded by")}</p>
             <p className="text-white/70">{file.uploadedByUsername}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">Data upload</p>
+            <p className="mb-0.5 text-white/30">{t("Upload date")}</p>
             <p className="text-white/70">
-              {new Date(file.createdAt).toLocaleString("it-IT")}
+              {new Date(file.createdAt).toLocaleString(dateLocale)}
             </p>
           </div>
           {file.expiresAt && (
             <div>
-              <p className="mb-0.5 text-white/30">Scadenza</p>
+              <p className="mb-0.5 text-white/30">{t("Expires")}</p>
               <p
                 className={`font-medium ${
                   new Date(file.expiresAt) < new Date()
@@ -1982,15 +2142,19 @@ function DetailsPane({
                     : "text-yellow-400"
                 }`}
               >
-                {new Date(file.expiresAt).toLocaleString("it-IT")}
+                {new Date(file.expiresAt).toLocaleString(dateLocale)}
               </p>
             </div>
           )}
         </div>
       </div>
+      <div className="min-w-0">
+        <p className="mb-1 text-xs text-white/30">{t("File ID")}</p>
+        <code className="break-all text-xs text-white/60">{file._id}</code>
+      </div>
       {/* URL */}
       <div>
-        <p className="mb-1.5 text-xs text-white/30">URL autenticato</p>
+        <p className="mb-1.5 text-xs text-white/30">{t("Authenticated URL")}</p>
         <div className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-black/20 px-3 py-2">
           <span
             className="flex-1 truncate font-mono text-[11px] text-white/40"
@@ -2001,7 +2165,7 @@ function DetailsPane({
           <button
             onClick={copy}
             className="flex-shrink-0 text-xs text-white/40 transition-colors hover:text-white"
-            title="Copia URL"
+            title={t("Copy URL")}
           >
             <Icon
               icon={copied ? faCheck : faCopy}
@@ -2016,33 +2180,36 @@ function DetailsPane({
           onClick={onPreview}
           className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
         >
-          <Icon icon={faEye} /> Anteprima
+          <Icon icon={faEye} /> {t("Preview")}
         </button>
         {onEdit && (
           <button
             onClick={onEdit}
             className="flex items-center gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400/60 transition-colors hover:text-blue-400"
           >
-            <Icon icon={faFileCode} /> Modifica
+            <Icon icon={faFileCode} /> {t("Edit")}
           </button>
         )}
         <button
           onClick={onAccess}
           className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
         >
-          <Icon icon={faUsers} /> Accesso
+          <Icon icon={faUsers} /> {t("Access")}
         </button>
         <button
           onClick={onShare}
           className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
         >
-          <Icon icon={faLink} /> Condividi
+          <Icon icon={faLink} /> {t("Share")}
+        </button>
+        <button onClick={onMove} className="secondary-button">
+          {t("Move")}
         </button>
         <button
           onClick={onRename}
           className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
         >
-          <Icon icon={faPen} /> Rinomina
+          <Icon icon={faPen} /> {t("Rename")}
         </button>
         <a
           href={file.url}
@@ -2055,7 +2222,7 @@ function DetailsPane({
           onClick={onDelete}
           className="flex items-center gap-1.5 rounded-lg border border-rose-500/15 bg-red-500/5 px-3 py-2 text-xs text-rose-400/60 transition-colors hover:text-rose-400"
         >
-          <Icon icon={faTrash} /> Elimina
+          <Icon icon={faTrash} /> {t("Delete")}
         </button>
       </div>
     </div>
@@ -2065,6 +2232,7 @@ function DetailsPane({
 /* ─── List row ────────────────────────────────────────────────────────────── */
 function ListRow({
   file,
+  onMove,
   onRename,
   onDelete,
   onCopy,
@@ -2076,6 +2244,7 @@ function ListRow({
   onDragEnd,
 }: {
   file: CdnFileItem;
+  onMove: () => void;
   onRename: () => void;
   onDelete: () => void;
   onCopy: () => void;
@@ -2086,6 +2255,9 @@ function ListRow({
   onDragStart: () => void;
   onDragEnd: () => void;
 }) {
+  const { t, dateLocale } = useI18n();
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <tr
       className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-grab active:cursor-grabbing"
@@ -2116,17 +2288,33 @@ function ListRow({
         {file.uploadedByUsername}
       </td>
       <td className="px-4 py-3 text-xs text-white/40">
-        {new Date(file.createdAt).toLocaleDateString("it-IT")}
+        {new Date(file.createdAt).toLocaleDateString(dateLocale)}
       </td>
       <td className="px-4 py-3">
-        <div className="flex items-center justify-end gap-1">
+        <button
+          onClick={() => setMenuOpen(true)}
+          className="secondary-button w-full sm:hidden"
+        >
+          ⋯ {t("Actions")}
+        </button>
+        <div className="hidden flex-wrap items-center justify-end gap-1 sm:flex">
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onMove();
+            }}
+            title={t("Move")}
+            className="min-h-11 min-w-11 rounded p-2 text-white/50"
+          >
+            <Icon icon={faFolderOpen} />
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onPreview();
             }}
             className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
-            title="Anteprima"
+            title={t("Preview")}
           >
             <Icon icon={faEye} className="text-xs" />
           </button>
@@ -2137,7 +2325,7 @@ function ListRow({
                 onEdit();
               }}
               className="rounded p-1.5 text-blue-400/50 hover:text-blue-400 transition-colors"
-              title="Modifica testo"
+              title={t("Edit text")}
             >
               <Icon icon={faFileCode} className="text-xs" />
             </button>
@@ -2148,7 +2336,7 @@ function ListRow({
               onAccess();
             }}
             className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
-            title="Gestione accesso"
+            title={t("Manage access")}
           >
             <Icon icon={faUsers} className="text-xs" />
           </button>
@@ -2158,7 +2346,7 @@ function ListRow({
               onShare();
             }}
             className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
-            title="Condividi"
+            title={t("Share")}
           >
             <Icon icon={faLink} className="text-xs" />
           </button>
@@ -2168,7 +2356,7 @@ function ListRow({
               onRename();
             }}
             className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
-            title="Rinomina"
+            title={t("Rename")}
           >
             <Icon icon={faPen} className="text-xs" />
           </button>
@@ -2178,7 +2366,7 @@ function ListRow({
               onCopy();
             }}
             className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
-            title="Duplica"
+            title={t("Duplicate")}
           >
             <Icon icon={faCopy} className="text-xs" />
           </button>
@@ -2188,11 +2376,47 @@ function ListRow({
               onDelete();
             }}
             className="rounded p-1.5 text-rose-400/50 hover:text-rose-400 transition-colors"
-            title="Elimina"
+            title={t("Delete")}
           >
             <Icon icon={faTrash} className="text-xs" />
           </button>
         </div>
+        <AdminModal
+          open={menuOpen}
+          title={file.name}
+          onClose={() => setMenuOpen(false)}
+          size="md"
+        >
+          <div className="grid gap-2">
+            {[
+              { label: "Preview", action: onPreview },
+              { label: "Edit text", action: onEdit },
+              { label: "Manage access", action: onAccess },
+              { label: "Share", action: onShare },
+              { label: "Rename", action: onRename },
+              { label: "Move", action: onMove },
+              { label: "Duplicate", action: onCopy },
+              { label: "Delete", action: onDelete },
+            ]
+              .filter((item) => item.action)
+              .map((item) => (
+                <button
+                  key={item.label}
+                  className={
+                    item.label === "Delete"
+                      ? "danger-button"
+                      : "secondary-button"
+                  }
+                  onClick={() => {
+                    setMenuOpen(false);
+                    item.action?.();
+                  }}
+                >
+                  {t(item.label)}
+                </button>
+              ))}
+          </div>
+        </AdminModal>
       </td>
     </tr>
   );

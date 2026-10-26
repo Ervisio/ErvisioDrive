@@ -104,7 +104,7 @@ export function filePath(folder: string, storedName: string) {
     !/^[a-z0-9][a-z0-9-]{0,99}$/.test(folder) ||
     !/^[a-f0-9]{24}(\.[a-z0-9]{1,12})?$/.test(storedName)
   )
-    throw new Error("Percorso non valido");
+    throw new Error("Invalid storage path");
   return path.join(storageRoot(), folder, storedName);
 }
 export function fileUrl(folder: string, storedName: string) {

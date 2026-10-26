@@ -1,4 +1,5 @@
 "use client";
+import { useI18n } from "@/components/LocaleProvider";
 
 import { useState, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
@@ -18,11 +19,14 @@ const CodeMirror = dynamic(
   () => import("@uiw/react-codemirror").then((m) => m.default),
   {
     ssr: false,
-    loading: () => (
-      <div className="flex h-64 items-center justify-center text-white/30 text-sm">
-        Caricamento editor…
-      </div>
-    ),
+    loading: function EditorLoading() {
+      const { t } = useI18n();
+      return (
+        <div className="flex h-64 items-center justify-center text-white/30 text-sm">
+          {t("Loading editor…")}
+        </div>
+      );
+    },
   },
 );
 
@@ -59,7 +63,7 @@ export function detectLangLabel(filename: string): string {
     bat: "Batch",
     md: "Markdown",
     markdown: "Markdown",
-    txt: "Testo",
+    txt: "Text",
     xml: "XML",
     graphql: "GraphQL",
     vue: "Vue",
@@ -68,7 +72,7 @@ export function detectLangLabel(filename: string): string {
     r: "R",
     dart: "Dart",
   };
-  return map[ext] ?? (ext.toUpperCase() || "Testo");
+  return map[ext] ?? (ext.toUpperCase() || "Text");
 }
 
 /** Check if file is a text/editable file */
@@ -149,6 +153,8 @@ function EditorWithLang({
   onChange: (v: string) => void;
   filename: string;
 }) {
+  const { t, dateLocale } = useI18n();
+
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
 
   // We use a key to re-mount when language changes
@@ -200,7 +206,7 @@ function EditorWithLang({
   if (!langLoaded) {
     return (
       <div className="flex h-64 items-center justify-center text-white/30 text-sm">
-        Rilevamento linguaggio…
+        {t("Detecting language…")}
       </div>
     );
   }
@@ -244,6 +250,8 @@ export function CdnTextEditor({
   onSave,
   onClose,
 }: CdnTextEditorProps) {
+  const { t, dateLocale } = useI18n();
+
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   const isMarkdown = ext === "md" || ext === "markdown";
   const [showPreview, setShowPreview] = useState(false);
@@ -264,7 +272,7 @@ export function CdnTextEditor({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-mono text-[11px] text-white/50">
-            {detectLangLabel(filename)}
+            {t(detectLangLabel(filename))}
           </span>
           <span className="text-xs text-white/30">{filename}</span>
         </div>
@@ -279,13 +287,13 @@ export function CdnTextEditor({
               }`}
             >
               <Icon icon={showPreview ? faCode : faEye} />
-              {showPreview ? "Editor" : "Anteprima"}
+              {showPreview ? "Editor" : t("Preview")}
             </button>
           )}
           <button
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/50 transition-colors hover:text-white"
-            title="Chiudi"
+            title={t("Close")}
           >
             <Icon icon={faXmark} />
           </button>
@@ -296,7 +304,7 @@ export function CdnTextEditor({
       {loading ? (
         <div className="flex h-64 items-center justify-center gap-3 text-white/30">
           <Icon icon={faRotateRight} className="animate-spin" />
-          <span className="text-sm">Caricamento file…</span>
+          <span className="text-sm">{t("Loading file…")}</span>
         </div>
       ) : isMarkdown && showPreview ? (
         <div className="prose prose-invert prose-sm min-h-64 max-h-[60vh] max-w-none overflow-y-auto rounded-lg border border-white/10 bg-black/20 p-4">
@@ -316,14 +324,14 @@ export function CdnTextEditor({
           <kbd className="rounded bg-white/5 px-1 py-0.5 text-[10px]">
             Ctrl+S
           </kbd>{" "}
-          per salvare
+          {t("to save")}
         </p>
         <div className="flex items-center gap-2">
           <button
             onClick={onClose}
             className="rounded-lg px-4 py-2 text-sm text-white/50 transition-colors hover:text-white"
           >
-            Annulla
+            {t("Cancel")}
           </button>
           <button
             onClick={onSave}
@@ -335,7 +343,7 @@ export function CdnTextEditor({
             ) : (
               <Icon icon={faFloppyDisk} />
             )}
-            {saving ? "Salvataggio…" : "Salva"}
+            {saving ? t("Saving…") : t("Save")}
           </button>
         </div>
       </div>

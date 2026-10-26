@@ -1,13 +1,18 @@
 "use client";
+import { LanguageSwitch, useI18n } from "@/components/LocaleProvider";
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 export function Login({
   error,
   googleEnabled,
+  cognitoEnabled,
 }: {
   error: boolean;
   googleEnabled: boolean;
+  cognitoEnabled: boolean;
 }) {
+  const { t, dateLocale } = useI18n();
+
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false),
@@ -24,35 +29,41 @@ export function Login({
       });
       if (result?.ok) window.location.assign("/");
       else
-        setLocalError("Email o password non valide, oppure accesso revocato.");
+        setLocalError(
+          t("Invalid email or password, or access has been revoked."),
+        );
     } catch {
-      setLocalError("Accesso non riuscito. Riprova tra poco.");
+      setLocalError(t("Sign-in failed. Please try again shortly."));
     } finally {
       setBusy(false);
     }
   }
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#0a0a0f] p-6 text-white">
-      <div className="w-full max-w-md rounded-2xl border border-white/[0.06] bg-[#111118] p-10 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl border border-white/[0.06] bg-[#111118] p-6 sm:p-10 shadow-2xl">
+        <div className="mb-5 flex justify-end">
+          <LanguageSwitch />
+        </div>
         <div className="mb-8 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 text-2xl font-bold">
           E
         </div>
         <p className="mb-3 text-xs font-medium uppercase tracking-[.2em] text-orange-400">
-          Il tuo spazio di lavoro
+          {t("Your workspace")}
         </p>
         <h1 className="text-3xl font-bold tracking-tight">ErvisioDrive</h1>
         <p className="mb-8 mt-4 text-sm leading-relaxed text-white/40">
-          File, cartelle e idee. Tutto al proprio posto.
+          {t("Files, folders and ideas. Everything in its place.")}
           <br />
-          Accedi con il tuo account autorizzato.
+          {t("Sign in with your authorized account.")}
         </p>
         {error && (
           <p
             role="alert"
             className="mb-5 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-300"
           >
-            Accesso non riuscito. Verifica di aver scelto l’account autorizzato
-            o contatta un amministratore.
+            {t(
+              "Sign-in failed. Choose an authorized account or contact an administrator.",
+            )}
           </p>
         )}
         <form onSubmit={login} className="mb-6 space-y-4">
@@ -88,10 +99,12 @@ export function Login({
             disabled={busy}
             className="w-full rounded-xl bg-orange-500 p-3 text-sm font-semibold text-white disabled:opacity-40"
           >
-            {busy ? "Accesso…" : "Accedi"}
+            {busy ? t("Signing in…") : t("Sign in")}
           </button>
           <p className="text-xs text-white/30">
-            Per attivare o recuperare l’account, chiedi un invito all’admin.
+            {t(
+              "Ask your administrator for an invitation to activate or recover your account.",
+            )}
           </p>
         </form>
         {googleEnabled && (
@@ -117,11 +130,21 @@ export function Login({
                 d="M12 5.97c1.47 0 2.79.5 3.83 1.51l2.87-2.87A9.62 9.62 0 0 0 12 2a10 10 0 0 0-8.93 5.51l3.34 2.59C7.2 7.73 9.4 5.97 12 5.97Z"
               />
             </svg>
-            Continua con Google
+            {t("Continue with Google")}
+          </button>
+        )}
+        {cognitoEnabled && (
+          <button
+            onClick={() => signIn("cognito", { callbackUrl: "/" })}
+            className="secondary-button mt-3 w-full"
+          >
+            {t("Continue with AWS Cognito")}
           </button>
         )}
         <p className="mt-6 text-center text-[11px] leading-relaxed text-white/25">
-          L’accesso è riservato alle email abilitate dall’amministratore.
+          {t(
+            "Access is restricted to email addresses authorized by an administrator.",
+          )}
         </p>
       </div>
     </main>

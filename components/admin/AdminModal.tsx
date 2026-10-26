@@ -1,5 +1,6 @@
 "use client";
-
+import { useEffect, useRef, useId } from "react";
+import { useI18n } from "@/components/LocaleProvider";
 interface AdminModalProps {
   open: boolean;
   title: string;
@@ -7,7 +8,6 @@ interface AdminModalProps {
   children: React.ReactNode;
   size?: "md" | "lg" | "xl";
 }
-
 export function AdminModal({
   open,
   title,
@@ -15,52 +15,47 @@ export function AdminModal({
   children,
   size = "lg",
 }: AdminModalProps) {
+  const { t } = useI18n(),
+    dialog = useRef<HTMLDialogElement>(null),
+    heading = useId();
+  useEffect(() => {
+    if (open) {
+      dialog.current?.showModal();
+      const old = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = old;
+        dialog.current?.close();
+      };
+    }
+  }, [open]);
   if (!open) return null;
-
-  const widthClass =
-    size === "md" ? "max-w-lg" : size === "lg" ? "max-w-2xl" : "max-w-4xl";
-
   return (
-    <div className="fixed inset-0 z-50 animate-[admin-fade-in_0.15s_ease-out]">
-      {/* Backdrop — always full-screen, never scrolls */}
-      <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md"
-        onClick={onClose}
-      />
-
-      {/* Scroll container — pointer-events-none so clicks fall through to backdrop */}
-      <div className="pointer-events-none absolute inset-0 overflow-y-auto flex items-start justify-center p-4 pt-16">
-        <div
-          className={`pointer-events-auto relative w-full ${widthClass} rounded-2xl border border-white/[0.06] bg-[#111118] shadow-2xl my-4 animate-[admin-slide-up_0.2s_ease-out]`}
+    <dialog
+      ref={dialog}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      aria-labelledby={heading}
+      className={`app-dialog ${size === "md" ? "sm:max-w-lg" : size === "lg" ? "sm:max-w-2xl" : "sm:max-w-4xl"}`}
+    >
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-white/5 bg-[#111118] px-4 py-3 sm:px-6">
+        <h2 id={heading} className="min-w-0 break-words text-sm font-semibold">
+          {title}
+        </h2>
+        <button
+          aria-label={t("Close")}
+          onClick={onClose}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-white/5 text-xl text-white/50"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/[0.04] px-6 py-4">
-            <h2 className="text-sm font-semibold tracking-tight text-white">
-              {title}
-            </h2>
-            <button
-              onClick={onClose}
-              className="rounded-lg p-1.5 text-white/30 transition-all hover:bg-white/[0.04] hover:text-orange-400"
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-          {/* Body */}
-          <div className="p-6">{children}</div>
-        </div>
+          ×
+        </button>
       </div>
-    </div>
+      <div className="modal-body p-4 sm:p-6">{children}</div>
+    </dialog>
   );
 }

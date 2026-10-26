@@ -17,6 +17,7 @@ const schema = new Schema(
     isOwner: { type: Boolean, default: false },
     name: { type: String, default: "" },
     googleSub: { type: String, default: null },
+    cognitoIdentity: { type: String, default: null },
     passwordHash: { type: String, default: null, select: false },
     inviteHash: { type: String, default: null, select: false },
     inviteExpiresAt: { type: Date, default: null },

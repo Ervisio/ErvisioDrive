@@ -21,6 +21,18 @@ jobs:
         env:
           NEXT_TELEMETRY_DISABLED: "1"
       - run: npm run test:http
+      - name: Install isolated UI test browser
+        run: npx playwright install --with-deps chromium
+      - name: Verify phone, tablet and desktop flows
+        run: npm run test:ui
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: responsive-ui-evidence
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
   docker:
     runs-on: ubuntu-latest
     steps:

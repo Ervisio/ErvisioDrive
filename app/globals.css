@@ -1,0 +1,254 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Admin Panel Scoped Styles ─── */
+
+/* Admin CSS custom properties */
+.admin-shell {
+  --admin-bg: #0a0a0f;
+  --admin-surface: #111118;
+  --admin-surface-2: #16161f;
+  --admin-surface-3: #1c1c28;
+  --admin-border: rgba(255, 255, 255, 0.06);
+  --admin-border-strong: rgba(255, 255, 255, 0.1);
+  --admin-orange: #f97316;
+  --admin-orange-light: #fb923c;
+  --admin-orange-dark: #ea580c;
+  --admin-amber: #f59e0b;
+  --admin-indigo: #6366f1;
+  --admin-emerald: #10b981;
+  --admin-rose: #f43f5e;
+  --admin-cyan: #06b6d4;
+  font-family:
+    var(--font-inter),
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+.admin-shell h1,
+.admin-shell h2,
+.admin-shell h3,
+.admin-shell h4,
+.admin-shell h5,
+.admin-shell h6 {
+  font-family:
+    var(--font-inter),
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+/* Remove grid background pattern in admin */
+.admin-shell::before {
+  display: none;
+}
+
+/* Admin custom scrollbar */
+.admin-shell ::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.admin-shell ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.admin-shell ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+
+.admin-shell ::-webkit-scrollbar-thumb:hover {
+  background: rgba(249, 115, 22, 0.3);
+}
+
+/* Admin sidebar */
+.admin-sidebar {
+  background: linear-gradient(180deg, #0d0d14 0%, #0a0a10 100%);
+}
+
+/* Admin sidebar tooltip */
+.admin-sidebar-tooltip {
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--admin-surface-2);
+  border: 1px solid var(--admin-border-strong);
+  border-radius: 10px;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  z-index: 50;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(249, 115, 22, 0.05);
+}
+
+.admin-nav-item:hover .admin-sidebar-tooltip {
+  opacity: 1;
+}
+
+/* Admin card hover effect */
+.admin-card {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid var(--admin-border);
+  background: var(--admin-surface);
+}
+.admin-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(249, 115, 22, 0.08);
+  border-color: rgba(249, 115, 22, 0.15);
+}
+
+/* Glass card variant */
+.admin-glass {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.03) 0%,
+    rgba(255, 255, 255, 0.01) 100%
+  );
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--admin-border);
+}
+
+/* Admin skeleton loading */
+@keyframes adminShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.admin-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(249, 115, 22, 0.06) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: adminShimmer 1.8s ease-in-out infinite;
+  border-radius: 10px;
+}
+
+/* Admin animations */
+@keyframes admin-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes admin-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes admin-glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(249, 115, 22, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.15);
+  }
+}
+
+/* Admin stat badge glow */
+.admin-stat-glow {
+  position: relative;
+}
+.admin-stat-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.admin-stat-glow:hover::after {
+  opacity: 1;
+}
+
+/* Admin table styles */
+.admin-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.admin-table thead th {
+  background: var(--admin-surface);
+  border-bottom: 1px solid var(--admin-border);
+}
+.admin-table tbody tr {
+  transition: background 0.15s ease;
+}
+.admin-table tbody tr:hover {
+  background: rgba(249, 115, 22, 0.03);
+}
+
+/* Badge styles */
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Active indicator dot animation */
+@keyframes admin-dot-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.7;
+  }
+}
+.admin-dot-active {
+  animation: admin-dot-pulse 2s ease-in-out infinite;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background: #0a0a0f;
+    color: #fff;
+    font-family: Inter, system-ui, sans-serif;
+  }
+  * {
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+  :focus-visible {
+    outline: 2px solid #f97316;
+    outline-offset: 3px;
+  }
+}

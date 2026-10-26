@@ -1,0 +1,85 @@
+name: ervisiodrive
+x-app: &app
+  image: ervisiodrive:local
+  build: .
+  env_file: .env
+  environment:
+    MONGODB_URI: mongodb://mongo:27017/ervisiodrive
+    STORAGE_DIR: /data/files
+  volumes:
+    - type: bind
+      source: ${DRIVE_STORAGE_PATH:-./data/files}
+      target: /data/files
+  networks: [private]
+  security_opt: [no-new-privileges:true]
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    volumes: [mongo_data:/data/db]
+    networks: [private]
+    healthcheck:
+      test:
+        [
+          CMD,
+          mongosh,
+          --quiet,
+          --eval,
+          "quit(db.adminCommand('ping').ok ? 0 : 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+  storage-init:
+    <<: *app
+    user: "0:0"
+    command:
+      [
+        node,
+        -e,
+        "const fs=require('fs');fs.mkdirSync('/data/files',{recursive:true});fs.chownSync('/data/files',1001,1001);fs.chmodSync('/data/files',0o750)",
+      ]
+    restart: "no"
+  bootstrap:
+    <<: *app
+    command: [node, scripts/ops.mjs, bootstrap]
+    depends_on:
+      mongo: { condition: service_healthy }
+      storage-init: { condition: service_completed_successfully }
+    restart: "no"
+  app:
+    <<: *app
+    restart: unless-stopped
+    ports: ["${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"]
+    depends_on:
+      bootstrap: { condition: service_completed_successfully }
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+  cleanup:
+    <<: *app
+    restart: unless-stopped
+    command: [node, scripts/ops.mjs, cleanup-loop]
+    depends_on:
+      bootstrap: { condition: service_completed_successfully }
+    logging:
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
+networks:
+  private:
+volumes:
+  mongo_data:

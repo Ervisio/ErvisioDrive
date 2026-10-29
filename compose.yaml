@@ -10,6 +10,11 @@ x-app: &app
     - type: bind
       source: ${DRIVE_STORAGE_PATH:-./data/files}
       target: /data/files
+    # Unix socket for the Ervisio plugin (ERVISIO_SOCKET_DIR=/run/ervisio-drive).
+    - type: bind
+      source: ${ERVISIO_SOCKET_DIR:-./data/run}
+      target: /run/ervisio-drive
+      bind: { create_host_path: true }
   networks: [private]
   security_opt: [no-new-privileges:true]
 services:
@@ -40,7 +45,7 @@ services:
       [
         node,
         -e,
-        "const fs=require('fs');fs.mkdirSync('/data/files',{recursive:true});fs.chownSync('/data/files',1001,1001);fs.chmodSync('/data/files',0o750)",
+        "const fs=require('fs');for(const d of ['/data/files','/run/ervisio-drive']){fs.mkdirSync(d,{recursive:true});fs.chownSync(d,1001,1001);fs.chmodSync(d,0o750)}",
       ]
     restart: "no"
   bootstrap:
@@ -53,6 +58,17 @@ services:
   app:
     <<: *app
     restart: unless-stopped
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/ervisiodrive
+      STORAGE_DIR: /data/files
+      PLUGIN_SOCKET: /run/ervisio-drive/api.sock
+      HOSTNAME_ALIAS: ervisiodrive-app
+      EDGE_NETWORK: ervisiodrive_edge
+    # "edge" holds only the app, so a Caddy container can join it without
+    # reaching the database.
+    networks:
+      private: {}
+      edge: { aliases: [ervisiodrive-app] }
     ports: ["${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"]
     depends_on:
       bootstrap: { condition: service_completed_successfully }
@@ -81,5 +97,7 @@ services:
       options: { max-size: 10m, max-file: "3" }
 networks:
   private:
+  edge:
+    name: ervisiodrive_edge
 volumes:
   mongo_data:

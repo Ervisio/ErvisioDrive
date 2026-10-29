@@ -1,0 +1,148 @@
+# Release of the Ervisio plugin in plugin/: Actions > Plugin release > Run
+# workflow (patch, minor or major), or push a vX.Y.Z tag. The steps follow
+# Ervisio/plugin-sdk's reusable plugin-release.yml, which expects the plugin at
+# the repository root; here it lives in plugin/, so every step runs there.
+name: Plugin release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which part of the version goes up'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      notes:
+        description: 'Release notes (empty: the commit subjects since the last release)'
+        type: string
+        required: false
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+env:
+  ERVISIO_REF: main
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: plugin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Bump the version and write the changelog
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BUMP: ${{ inputs.bump }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != branch ]; then echo "::error::run it on a branch (normally main)"; exit 1; fi
+          old="$(node -p "require('./plugin/manifest.json').version")"
+          new="$(node -e '
+            const [a,b,c] = process.argv[1].split("-")[0].split(".").map(Number);
+            const k = process.argv[2];
+            console.log(k === "major" ? `${a+1}.0.0` : k === "minor" ? `${a}.${b+1}.0` : `${a}.${b}.${c+1}`);
+          ' "$old" "$BUMP")"
+          if git rev-parse -q --verify "refs/tags/v$new" >/dev/null; then echo "::error::tag v$new exists already"; exit 1; fi
+          echo "Releasing $old -> $new"
+          node -e '
+            const fs = require("fs"); const p = "plugin/manifest.json";
+            const s = fs.readFileSync(p, "utf8");
+            const out = s.replace(/("version"\s*:\s*")[^"]*(")/, `$1${process.argv[1]}$2`);
+            if (out === s) { console.error("no version in manifest.json"); process.exit(1); }
+            JSON.parse(out); fs.writeFileSync(p, out);
+          ' "$new"
+          npm version "$new" --no-git-tag-version --allow-same-version >/dev/null
+          body="$RUNNER_TEMP/section.md"
+          if [ -n "$NOTES" ]; then
+            printf '%s\n' "$NOTES" > "$body"
+          else
+            last="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+            git log --no-merges --format='- %s' ${last:+"$last"..}HEAD -- . | grep -v '^- Release [0-9]' > "$body" || true
+            [ -s "$body" ] || echo "- Maintenance release." > "$body"
+          fi
+          node -e '
+            const fs = require("fs"); const [ver, bodyFile] = process.argv.slice(1);
+            const date = new Date().toISOString().slice(0, 10);
+            const section = `## ${ver} - ${date}\n\n${fs.readFileSync(bodyFile, "utf8").trim()}\n`;
+            let s = fs.existsSync("CHANGELOG.md") ? fs.readFileSync("CHANGELOG.md", "utf8") : "# Changelog\n";
+            const i = s.search(/^## /m);
+            s = i < 0 ? s.trimEnd() + "\n\n" + section : s.slice(0, i) + section + "\n" + s.slice(i);
+            fs.writeFileSync("CHANGELOG.md", s);
+          ' "$new" "$body"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -am "Release plugin $new"
+          git tag -a "v$new" -m "$new"
+          git push origin "HEAD:$GITHUB_REF_NAME" "v$new"
+          echo "TAG=v$new" >> "$GITHUB_ENV"
+
+      - name: Tag of this release
+        if: github.event_name == 'push'
+        run: echo "TAG=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
+
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Pack (checks tag = manifest version = package.json version)
+        run: npm run pack
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Ervisio/ervisio
+          ref: ${{ env.ERVISIO_REF }}
+          path: .ervisio-core
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .ervisio-core/server/go.mod
+          cache: false
+      - name: Validate the manifest (Ervisio's own checks, throwaway key)
+        run: |
+          (cd ../.ervisio-core/server && CGO_ENABLED=0 go build -o "$RUNNER_TEMP/plugin-sign" ./internal/modules/plugins/cmd/plugin-sign)
+          id="$(node -p "require('./plugin/manifest.json').id")"
+          version="$(node -p "require('./plugin/manifest.json').version")"
+          echo "ID=$id" >> "$GITHUB_ENV"; echo "VERSION=$version" >> "$GITHUB_ENV"
+          (cd dist && sha256sum -c "$id-$version.tar.gz.sha256")
+          V="$RUNNER_TEMP/validate"; mkdir -p "$V"
+          tar -xzf "dist/$id-$version.tar.gz" -C "$V"
+          test "$(ls "$V")" = "$id"
+          if [ -n "$(find "$V" ! -type f ! -type d)" ]; then echo "links or special files in the tarball"; exit 1; fi
+          pub="$("$RUNNER_TEMP/plugin-sign" -genkey "$RUNNER_TEMP/throwaway.key" | sed -n 's/^public key: //p')"
+          "$RUNNER_TEMP/plugin-sign" -key "$RUNNER_TEMP/throwaway.key" "$V/$id"
+          "$RUNNER_TEMP/plugin-sign" -verify -pub "$pub" "$V/$id"
+          rm -f "$RUNNER_TEMP/throwaway.key"
+      - name: Release notes (CHANGELOG.md section of this version)
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          awk -v v="$VERSION" '
+            /^## / { if (p) exit; h=$0; sub(/^## +\[?v?/, "", h); gsub(/\]/, " ", h); split(h, a, /[ \t(]+/); if (a[1] == v) { p=1; next } }
+            p { print }' CHANGELOG.md > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; fi
+          cat "$notes"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "$ID $VERSION" --notes-file "$RUNNER_TEMP/notes.md" \
+            "dist/$ID-$VERSION.tar.gz" "dist/$ID-$VERSION.tar.gz.sha256"
+      - name: Tell the registry
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$REGISTRY_TOKEN" ]; then
+            echo "::notice::REGISTRY_TOKEN is not set: the registry picks this release up within six hours."
+            exit 0
+          fi
+          GH_TOKEN="$REGISTRY_TOKEN" gh api repos/Ervisio/plugins/dispatches \
+            -f event_type=plugin-release -f "client_payload[id]=$ID" -f "client_payload[repo]=$GITHUB_REPOSITORY"

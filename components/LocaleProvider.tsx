@@ -50,13 +50,13 @@ export const useI18n = () => useContext(Context);
 export function LanguageSwitch() {
   const { locale, setLocale, t } = useI18n();
   return (
-    <label className="inline-flex min-h-11 shrink-0 items-center gap-2 text-xs text-white/50">
+    <label className="inline-flex min-h-11 shrink-0 items-center gap-2 text-xs text-ink-dim">
       <span className="sr-only">{t("Language")}</span>
       <select
         aria-label={t("Language")}
         value={locale}
         onChange={(e) => setLocale(e.target.value as Locale)}
-        className="min-h-11 rounded-lg border border-white/10 bg-[#16161f] px-3 text-base sm:text-xs"
+        className="h-9 cursor-pointer rounded-full border border-white/20 bg-transparent px-3 text-base font-semibold text-ink-dim outline-none hover:bg-white/5 sm:text-xs"
       >
         <option value="en">English</option>
         <option value="it">Italiano</option>

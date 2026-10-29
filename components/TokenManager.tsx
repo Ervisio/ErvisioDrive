@@ -122,7 +122,7 @@ export function TokenManager({ admin }: { admin: boolean }) {
           {t("API documentation")} →
         </Link>
         {admin && (
-          <label className="flex min-h-11 items-center gap-3 text-sm text-white/50">
+          <label className="flex min-h-11 items-center gap-3 text-sm text-ink-dim">
             <input
               type="checkbox"
               checked={all}
@@ -144,8 +144,8 @@ export function TokenManager({ admin }: { admin: boolean }) {
             <div className="flex flex-col justify-between gap-4 sm:flex-row">
               <div className="min-w-0">
                 <h2 className="break-words font-semibold">{token.name}</h2>
-                <code className="text-xs text-white/40">{token.prefix}</code>
-                <p className="mt-2 text-xs text-white/40">
+                <code className="text-xs text-ink-faint">{token.prefix}</code>
+                <p className="mt-2 text-xs text-ink-faint">
                   {t("Expires")}:{" "}
                   {new Date(token.expiresAt).toLocaleString(dateLocale)} ·{" "}
                   {t(
@@ -156,14 +156,14 @@ export function TokenManager({ admin }: { admin: boolean }) {
                         : "Active",
                   )}
                 </p>
-                <p className="mt-1 text-xs text-white/40">
+                <p className="mt-1 text-xs text-ink-faint">
                   {t("Last used")}:{" "}
                   {token.lastUsedAt
                     ? new Date(token.lastUsedAt).toLocaleString(dateLocale)
                     : t("Never")}
                 </p>
                 {all && (
-                  <p className="mt-1 break-all text-xs text-white/30">
+                  <p className="mt-1 break-all text-xs text-ink-faint">
                     {t("Owner ID")}: {token.ownerId}
                   </p>
                 )}
@@ -197,7 +197,7 @@ export function TokenManager({ admin }: { admin: boolean }) {
                 </code>
               ))}
             </div>
-            <p className="mt-3 break-words text-xs text-white/40">
+            <p className="mt-3 break-words text-xs text-ink-faint">
               {token.resourceMode === "all"
                 ? t("All resources accessible to the owner")
                 : t("Selected resources only")}
@@ -295,7 +295,7 @@ export function TokenManager({ admin }: { admin: boolean }) {
                 <details
                   key={group}
                   open
-                  className="rounded-xl border border-white/10 p-3"
+                  className="rounded-card border border-white/10 p-3"
                 >
                   <summary className="min-h-9 cursor-pointer text-sm font-medium capitalize text-orange-400">
                     {group}
@@ -321,10 +321,10 @@ export function TokenManager({ admin }: { admin: boolean }) {
                             }
                           />
                           <span className="min-w-0">
-                            <code className="break-all text-[11px] text-white/70">
+                            <code className="break-all text-[11px] text-ink">
                               {scope}
                             </code>
-                            <small className="mt-1 block text-xs text-white/35">
+                            <small className="mt-1 block text-xs text-ink-faint">
                               {t(PERMISSIONS[scope])}
                             </small>
                           </span>
@@ -400,7 +400,7 @@ export function TokenManager({ admin }: { admin: boolean }) {
         title={t("Copy your API token now")}
         onClose={() => setSecret("")}
       >
-        <p className="mb-4 text-sm text-white/50">
+        <p className="mb-4 text-sm text-ink-dim">
           {t(
             "This secret will not be shown again. Keep it private and send it only in the Authorization header.",
           )}

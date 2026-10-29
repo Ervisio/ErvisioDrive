@@ -16,6 +16,7 @@ import { fail, json, errorResponse, readJson } from "@/lib/http";
 import { canReadFolder, type Actor } from "@/lib/policy";
 import FolderModel, { BUILTIN_FOLDER_SLUGS } from "@/models/CdnFolder";
 import { recordAudit } from "@/lib/audit";
+import { recordEvent } from "@/lib/events";
 
 function rewritten(req: NextRequest, method: string, body: unknown) {
   return new NextRequest(req.url, {
@@ -26,13 +27,16 @@ function rewritten(req: NextRequest, method: string, body: unknown) {
 }
 export async function v1Request(req: NextRequest, parts: string[]) {
   let actor: Actor | undefined;
-  const requestId = crypto.randomUUID();
+  const requestId = crypto.randomUUID(),
+    started = Date.now();
+  let endpoint = "unknown";
   try {
     // No cookie fallback: machine endpoints only accept explicit bearer credentials.
     actor = await authenticateApiToken(req);
     const match = matchOperation(req.method, parts);
     if (!match) return fail(404, "Unknown API operation");
     const { operation, params } = match;
+    endpoint = `${req.method} ${operation.path}`;
     if (operation.scope) requirePermission(actor, operation.scope);
     let response: Response;
     const id = params.id,
@@ -63,11 +67,14 @@ export async function v1Request(req: NextRequest, parts: string[]) {
           data: await accessibleFile(actor, id),
         });
         break;
-      case "download":
-        response = (
-          await prepareFile(req, await accessibleFile(actor, id), true)
-        ).response();
+      case "download": {
+        const file = await accessibleFile(actor, id),
+          prepared = await prepareFile(req, file, true);
+        if (prepared.start === 0)
+          await recordEvent(req, "download", { actor, file, bytes: prepared.bytes });
+        response = prepared.response();
         break;
+      }
       case "folder": {
         const folder = await FolderModel.findOne({ slug }).lean<any>();
         const builtin = (BUILTIN_FOLDER_SLUGS as readonly string[]).includes(
@@ -115,7 +122,7 @@ export async function v1Request(req: NextRequest, parts: string[]) {
         response = await driveRequest(req, parts, actor);
         break;
       case "storage":
-        response = json({ success: true, data: await storageUsage() });
+        response = json({ success: true, data: await storageUsage(actor.id) });
         break;
       case "members": {
         if (req.method === "POST") {
@@ -242,6 +249,12 @@ export async function v1Request(req: NextRequest, parts: string[]) {
       response.status,
       requestId,
     );
+    await recordEvent(req, "api", {
+      actor,
+      endpoint,
+      status: response.status,
+      durationMs: Date.now() - started,
+    });
     response.headers.set("X-Request-Id", requestId);
     response.headers.set("Cache-Control", "no-store");
     return response;
@@ -251,6 +264,13 @@ export async function v1Request(req: NextRequest, parts: string[]) {
     if (response.status === 401)
       response.headers.set("WWW-Authenticate", 'Bearer realm="ErvisioDrive"');
     if (response.status === 429) response.headers.set("Retry-After", "60");
+    if (actor)
+      await recordEvent(req, "api", {
+        actor,
+        endpoint,
+        status: response.status,
+        durationMs: Date.now() - started,
+      });
     if (actor)
       await recordAudit(
         actor,

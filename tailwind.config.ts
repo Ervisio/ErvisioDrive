@@ -1,88 +1,64 @@
 import type { Config } from "tailwindcss";
 
+// Every color resolves to a theme channel declared in app/globals.css, so the
+// light and dark themes share the same utility classes.
+const channel = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
+const scale = (name: string) =>
+  Object.fromEntries(
+    [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950].map((step) => [
+      step,
+      channel(name),
+    ]),
+  );
+
 const config: Config = {
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
-  darkMode: "class",
+  darkMode: ["selector", '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
-        background: {
-          DEFAULT: "rgb(var(--bg-primary-ch) / <alpha-value>)",
-          secondary: "rgb(var(--bg-secondary-ch) / <alpha-value>)",
-          tertiary: "rgb(var(--bg-tertiary-ch) / <alpha-value>)",
+        // `white` is the foreground ink: `bg-white/5` is a subtle tint in both themes.
+        white: channel("fg"),
+        backdrop: channel("backdrop"),
+        sheet: channel("sheet"),
+        surface: { DEFAULT: channel("surface"), 2: channel("surface-2") },
+        ink: {
+          DEFAULT: channel("fg"),
+          dim: channel("ink-dim"),
+          faint: channel("ink-faint"),
         },
         accent: {
-          DEFAULT: "rgb(var(--accent-ch) / <alpha-value>)",
-          hover: "rgb(var(--accent-hover-ch) / <alpha-value>)",
-          muted: "rgb(var(--accent-ch) / 0.15)",
+          DEFAULT: channel("accent"),
+          hover: channel("accent-hover"),
+          soft: channel("accent-soft"),
+          ink: channel("accent-ink"),
+          on: channel("on-accent"),
         },
-        text: {
-          DEFAULT: "#CCCCDD",
-          muted: "#9494B8",
-          inverted: "#080812",
-        },
-        border: {
-          DEFAULT: "rgb(var(--accent-ch) / 0.15)",
-          strong: "rgb(var(--accent-ch) / 0.4)",
-        },
-        gaming: {
-          blue: "#00D4FF",
-          purple: "#8B5CF6",
-          gold: "#FFD700",
-          red: "#EF4444",
-          orange: "#F97316",
-          green: "#1DB954",
-        },
+        orange: scale("accent"),
+        amber: scale("accent-hover"),
+        rose: scale("danger"),
+        red: scale("danger"),
+        emerald: scale("success"),
+        green: scale("success"),
+        blue: scale("info"),
+        yellow: scale("warn"),
+        media: channel("media"),
       },
       fontFamily: {
-        orbitron: ["var(--font-orbitron)", "monospace"],
-        rajdhani: ["var(--font-rajdhani)", "sans-serif"],
-        mono: ["var(--font-jetbrains)", "JetBrains Mono", "monospace"],
-        inter: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
+        sans: ["var(--font-figtree)", "system-ui", "sans-serif"],
+        mono: ["var(--font-jetbrains)", "JetBrains Mono", "ui-monospace", "monospace"],
       },
-      backgroundImage: {
-        "grid-pattern":
-          "linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)",
-        "radial-glow":
-          "radial-gradient(circle at center, rgb(var(--accent-ch) / 0.07) 0%, transparent 70%)",
-        "gradient-accent":
-          "linear-gradient(135deg, rgb(var(--accent-ch)) 0%, rgb(var(--accent-hover-ch)) 100%)",
-      },
-      backgroundSize: {
-        grid: "60px 60px",
+      borderRadius: {
+        sheet: "var(--radius-sheet)",
+        card: "var(--radius-card)",
       },
       boxShadow: {
-        glow: "0 0 20px rgb(var(--accent-ch) / 0.3)",
-        "glow-lg": "0 0 40px rgb(var(--accent-ch) / 0.4)",
-        "glow-blue": "0 0 20px rgba(0, 212, 255, 0.3)",
-        "glow-purple": "0 0 20px rgba(139, 92, 246, 0.3)",
-        card: "0 4px 24px rgba(0, 0, 0, 0.4)",
-      },
-      keyframes: {
-        flicker: {
-          "0%, 94%, 96%, 100%": { opacity: "1" },
-          "95%": { opacity: "0.7" },
-        },
-        // pulse-border defined in globals.css using CSS variables
-        "pulse-border": {},
-        "slide-up": {
-          "0%": { opacity: "0", transform: "translateY(20px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
-        },
-        "fade-in": {
-          "0%": { opacity: "0" },
-          "100%": { opacity: "1" },
-        },
-      },
-      animation: {
-        flicker: "flicker 6s ease-in-out infinite",
-        "pulse-border": "pulse-border 3s ease-in-out infinite",
-        "slide-up": "slide-up 0.5s ease-out",
-        "fade-in": "fade-in 0.4s ease-out",
+        lift: "var(--shadow-1)",
+        float: "var(--shadow-2)",
       },
     },
   },

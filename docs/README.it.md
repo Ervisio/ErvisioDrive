@@ -7,7 +7,7 @@ Drive privato separato da **FusionHub**, con la stessa interfaccia della sezione
 Serve soltanto Docker Engine con Compose v2 su Linux, oppure Docker Desktop avviato in modalità container Linux su Windows/macOS. Non servono Node.js o MongoDB installati sull’host.
 
 ```bash
-git clone https://github.com/Fonlogen/ErvisioDrive.git
+git clone https://github.com/Ervisio/ErvisioDrive.git
 cd ErvisioDrive
 ./setup.sh
 ```
@@ -111,8 +111,10 @@ La vista **Tutti**, come nell’originale FusionHub, include le categorie automa
 | `NEXTAUTH_SECRET` | Secret casuale generato dal setup; conservarlo fra riavvii |
 | `BOOTSTRAP_ADMIN_EMAIL` | Email del proprietario, usata solo sul database vuoto |
 | `DRIVE_STORAGE_PATH` | Cartella file sul disco **host** |
-| `STORAGE_QUOTA_GB` | Quota totale file in GiB, espandibile senza migrazione |
-| `UPLOAD_MAX_MB` | Limite per richiesta upload, predefinito 100 MiB |
+| `STORAGE_QUOTA_GB` | Quota totale file in GiB, `0` = illimitata; espandibile senza migrazione, modificabile in Impostazioni |
+| `UPLOAD_MAX_MB` | Dimensione massima di un file in MiB, `0` = illimitata; predefinito 100, modificabile in Impostazioni |
+| `STORAGE_ENCRYPTION_KEY` | 64 caratteri esadecimali che cifrano i file su disco; da conservare nel backup |
+| `ERVISIO_SOCKET_DIR` | Cartella host del socket per il plugin Ervisio; vuota se il drive è autonomo |
 | `APP_PORT`, `BIND_ADDRESS` | Porta host e indirizzo di ascolto |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth Google opzionale |
 | `TRUST_PROXY` | Predefinito `false`; attivare soltanto dietro un proxy fidato che sovrascrive `X-Forwarded-For` |
@@ -130,6 +132,12 @@ docker compose up -d
 
 Il comando segnala file mancanti senza cancellare file orfani. Non modificare direttamente i file del drive mentre il servizio è attivo.
 
+## Plugin Ervisio
+
+Il drive si può gestire da una console [Ervisio](https://github.com/Ervisio/ervisio). Rispondere **yes** a «Ervisio plugin integration» durante il setup (oppure `--ervisio yes`): il drive apre un socket di amministrazione in `/run/ervisio-drive/api.sock` sull’host. Le rotte `/api/plugin/*` rispondono solo su quel socket, protette da un secret per processo; dalla rete rispondono 404.
+
+Nella console installare **ErvisioDrive** da **Plugin**: mostra stato e spazio, modifica limiti e quote, gestisce le persone e può pubblicare il drive su un proprio indirizzo web tramite Caddy. Il sorgente è in [`plugin/`](../plugin/).
+
 ## Gestione e backup
 
 ```bash
@@ -139,7 +147,7 @@ docker compose up -d
 docker compose run --rm bootstrap node scripts/ops.mjs cleanup
 ```
 
-I file sono nella cartella scelta; MongoDB usa il volume Docker `ervisiodrive_mongo_data`. Salvare **insieme** cartella file, dump MongoDB e `.env`. Per un backup coerente fermare temporaneamente `app` e `cleanup`, esportare MongoDB con `mongodump` tramite `docker compose exec`, copiare file e configurazione, poi riavviare. Non usare `docker compose down -v` su un’installazione con dati da conservare.
+I file sono nella cartella scelta; MongoDB usa il volume Docker `ervisiodrive_mongo_data`. Salvare **insieme** cartella file, dump MongoDB e `.env` (con `STORAGE_ENCRYPTION_KEY`: senza la chiave i file non si leggono). Per un backup coerente fermare temporaneamente `app` e `cleanup`, esportare MongoDB con `mongodump` tramite `docker compose exec`, copiare file e configurazione, poi riavviare. Non usare `docker compose down -v` su un’installazione con dati da conservare.
 
 ## Sviluppo e verifiche
 
@@ -163,7 +171,7 @@ I test d’integrazione avviano un database MongoDB temporaneo e scaricano il re
 
 Interfaccia e componenti del drive estratti da `KFScripts/FusionHub`, commit `ad365d74e3e6f1c5797b289d2ee70c633bbd838c`. La logica di autenticazione, autorizzazione, storage privato, quote e distribuzione è separata. FusionHub non viene modificato. Non sono stati copiati configurazioni di produzione, dati, cookie, credenziali o moduli del portale non pertinenti.
 
-Progetto privato; nessuna licenza open source aggiunta.
+Rilasciato con [licenza MIT](../LICENSE).
 
 
 ## Aggiornamento 1.1

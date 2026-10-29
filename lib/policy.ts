@@ -19,16 +19,19 @@ export type Actor = {
   role: "admin" | "member";
   api?: ApiRestrictions;
 };
+export type Visibility = "private" | "members";
 export type Folder = {
   slug?: string;
   allowedUsers?: string[];
   createdBy?: string;
+  visibility?: Visibility;
 };
 export type DriveFile = {
   _id?: unknown;
   folder?: string;
   allowedUsers?: string[];
   uploadedBy?: string;
+  visibility?: Visibility;
   expiresAt?: Date | null;
 };
 export const normalizeEmail = (value: unknown) =>
@@ -54,12 +57,16 @@ export function tokenAllowsFile(actor: Actor, file: DriveFile) {
     )
   );
 }
+// Every member has a private space. Content is visible to its owner, to the
+// people it was shared with, to everyone when its visibility is "members", and
+// to administrators. Built-in categories (no folder document) are just views.
 function folderAcl(actor: Actor, folder?: Folder | null) {
   return (
     actor.role === "admin" ||
-    !folder?.allowedUsers?.length ||
+    !folder ||
+    folder.visibility === "members" ||
     folder.createdBy === actor.id ||
-    folder.allowedUsers.includes(actor.id)
+    !!folder.allowedUsers?.includes(actor.id)
   );
 }
 export function canReadFolder(actor: Actor, folder?: Folder | null) {
@@ -75,13 +82,14 @@ export function canReadFile(
   if (file.expiresAt && new Date(file.expiresAt).getTime() <= Date.now())
     return false;
   if (!tokenAllowsFile(actor, file)) return false;
-  return (
-    actor.role === "admin" ||
-    (folderAcl(actor, folder) &&
-      (!file.allowedUsers?.length ||
-        file.uploadedBy === actor.id ||
-        file.allowedUsers.includes(actor.id)))
-  );
+  if (actor.role === "admin" || file.uploadedBy === actor.id) return true;
+  const shared =
+    file.visibility === "members" || !!file.allowedUsers?.includes(actor.id);
+  // Inside a custom folder, folder access covers its files unless a file is
+  // restricted to specific people.
+  if (folder)
+    return folderAcl(actor, folder) && (shared || !file.allowedUsers?.length);
+  return shared;
 }
 export function canManage(actor: Actor, owner?: string) {
   return actor.role === "admin" || actor.id === owner;

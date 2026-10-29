@@ -16,7 +16,7 @@ export async function membersRequest(req: NextRequest, actor: Actor) {
     return json({
       success: true,
       data: await Member.find()
-        .select("email name role isOwner lastLogin createdAt")
+        .select("email name role isOwner quotaGb lastLogin createdAt")
         .sort({ createdAt: 1 })
         .lean(),
     });
@@ -71,6 +71,15 @@ export async function membersRequest(req: NextRequest, actor: Actor) {
       success: true,
       invitation: `${process.env.NEXTAUTH_URL}/activate#${invitation.token}`,
     });
+  }
+  // A personal quota applies to everyone, the owner included: null follows the
+  // workspace default, 0 is unlimited.
+  if (req.method === "PATCH" && "quotaGb" in body && body.role === undefined) {
+    const quota = body.quotaGb;
+    if (quota !== null && !(typeof quota === "number" && Number.isFinite(quota) && quota >= 0))
+      return fail(400, "Invalid quota");
+    await Member.updateOne({ _id: body.id }, { $set: { quotaGb: quota } });
+    return json({ success: true });
   }
   if (member.isOwner)
     return fail(

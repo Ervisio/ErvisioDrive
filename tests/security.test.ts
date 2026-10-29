@@ -36,10 +36,24 @@ test("ACL: folder and file restrictions intersect; owner and admin rights are ex
   assert.equal(canReadFile(alice, file, folder), true);
   assert.equal(canReadFile(bob, file, folder), false);
   assert.equal(canReadFile(admin, file, folder), true);
-  assert.equal(canReadFolder(bob, { allowedUsers: [] }), true);
+  assert.equal(canReadFolder(bob, { allowedUsers: [] }), false);
+  assert.equal(canReadFolder(bob, { allowedUsers: [], visibility: "members" }), true);
   assert.equal(canManage(bob, "alice"), false);
   assert.equal(canManage(admin, "alice"), true);
   assert.equal(canReadFile(admin, { expiresAt: new Date(0) }), false);
+});
+test("ACL: every member has a private space unless content is shared", () => {
+  const mine = { uploadedBy: "alice", allowedUsers: [] as string[] };
+  assert.equal(canReadFile(alice, mine), true);
+  assert.equal(canReadFile(bob, mine), false);
+  assert.equal(canReadFile(admin, mine), true);
+  assert.equal(canReadFile(bob, { ...mine, visibility: "members" as const }), true);
+  assert.equal(canReadFile(bob, { ...mine, allowedUsers: ["bob"] }), true);
+  // A shared folder covers its unrestricted files.
+  const folder = { createdBy: "alice", allowedUsers: ["bob"] };
+  assert.equal(canReadFile(bob, mine, folder), true);
+  assert.equal(canReadFile(bob, { ...mine, allowedUsers: ["carol"] }, folder), false);
+  assert.equal(canReadFile(bob, mine, { createdBy: "alice", allowedUsers: [] }), false);
 });
 test("reject path traversal, header injection and malformed filenames", () => {
   for (const value of ["../test", "a/b", "a\\b", "x\r\ny", "\0", ""])

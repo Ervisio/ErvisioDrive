@@ -39,19 +39,19 @@ export function Login({
     }
   }
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0a0a0f] p-6 text-white">
-      <div className="w-full max-w-md rounded-2xl border border-white/[0.06] bg-[#111118] p-6 sm:p-10 shadow-2xl">
+    <main className="flex min-h-screen items-center justify-center bg-backdrop p-6 text-white">
+      <div className="w-full max-w-md rounded-sheet border border-white/[0.06] bg-sheet p-6 sm:p-10 shadow-float">
         <div className="mb-5 flex justify-end">
           <LanguageSwitch />
         </div>
-        <div className="mb-8 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-orange-500 to-amber-500 text-2xl font-bold">
+        <div className="mb-8 grid h-14 w-14 place-items-center rounded-sheet bg-accent text-2xl font-bold text-accent-on">
           E
         </div>
         <p className="mb-3 text-xs font-medium uppercase tracking-[.2em] text-orange-400">
           {t("Your workspace")}
         </p>
         <h1 className="text-3xl font-bold tracking-tight">ErvisioDrive</h1>
-        <p className="mb-8 mt-4 text-sm leading-relaxed text-white/40">
+        <p className="mb-8 mt-4 text-sm leading-relaxed text-ink-faint">
           {t("Files, folders and ideas. Everything in its place.")}
           <br />
           {t("Sign in with your authorized account.")}
@@ -67,7 +67,7 @@ export function Login({
           </p>
         )}
         <form onSubmit={login} className="mb-6 space-y-4">
-          <label className="block text-xs text-white/50">
+          <label className="block text-xs text-ink-dim">
             Email
             <input
               type="email"
@@ -78,7 +78,7 @@ export function Login({
               className="mt-2 block w-full rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white"
             />
           </label>
-          <label className="block text-xs text-white/50">
+          <label className="block text-xs text-ink-dim">
             Password
             <input
               type="password"
@@ -97,11 +97,11 @@ export function Login({
           )}
           <button
             disabled={busy}
-            className="w-full rounded-xl bg-orange-500 p-3 text-sm font-semibold text-white disabled:opacity-40"
+            className="w-full rounded-card bg-orange-500 p-3 text-sm font-semibold text-accent-on disabled:opacity-40"
           >
             {busy ? t("Signing in…") : t("Sign in")}
           </button>
-          <p className="text-xs text-white/30">
+          <p className="text-xs text-ink-faint">
             {t(
               "Ask your administrator for an invitation to activate or recover your account.",
             )}
@@ -110,7 +110,7 @@ export function Login({
         {googleEnabled && (
           <button
             onClick={() => signIn("google", { callbackUrl: "/" })}
-            className="flex w-full items-center justify-center gap-3 rounded-xl bg-white px-5 py-3.5 text-sm font-semibold text-[#111118] hover:bg-orange-50"
+            className="flex w-full items-center justify-center gap-3 rounded-card bg-white px-5 py-3.5 text-sm font-semibold text-sheet hover:bg-white/90"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5">
               <path
@@ -141,7 +141,7 @@ export function Login({
             {t("Continue with AWS Cognito")}
           </button>
         )}
-        <p className="mt-6 text-center text-[11px] leading-relaxed text-white/25">
+        <p className="mt-6 text-center text-[11px] leading-relaxed text-ink-faint">
           {t(
             "Access is restricted to email addresses authorized by an administrator.",
           )}

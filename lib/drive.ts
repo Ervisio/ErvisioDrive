@@ -1,4 +1,4 @@
-import { getSettings } from "@/lib/settings";
+import { editorMaxBytes, getSettings } from "@/lib/settings";
 import { withLocks } from "@/lib/locks";
 import { reserveBytes, releaseBytes } from "@/lib/quota";
 import { NextRequest } from "next/server";
@@ -23,14 +23,19 @@ import {
   positiveInteger,
   normalizeEmail,
 } from "@/lib/policy";
+import { formatBytes } from "@/lib/format";
 import {
   filePath,
   fileUrl,
   mimeToFolder,
-  resolveMimeType,
   generateStoredName,
 } from "@/lib/storage";
 import { fail, json, readJson, rateLimit } from "@/lib/http";
+import { unzipSync } from "fflate";
+import { ODT_MIME, isEditableTextFile, isOdtFile } from "@/lib/text-files";
+import { readStored, rewrap, writeStored } from "@/lib/crypto-store";
+import { recordEvent } from "@/lib/events";
+import { receiveUpload } from "@/lib/upload";
 
 const builtins = new Set<string>(BUILTIN_FOLDER_SLUGS);
 export const liveFilter = () => ({
@@ -84,7 +89,8 @@ async function access(
     >();
     return json({
       success: true,
-      isPublic: !doc.allowedUsers.length,
+      visibility: doc.visibility || "private",
+      isPublic: doc.visibility === "members",
       allowedUsers: members.map((u) => ({
         id: u._id.toString(),
         username: u.email,
@@ -93,6 +99,12 @@ async function access(
     });
   }
   const body = await readJson(req);
+  if (req.method === "PATCH") {
+    if (body.visibility !== "private" && body.visibility !== "members")
+      return fail(400, "Visibility must be private or members");
+    await Model.updateOne(filter, { $set: { visibility: body.visibility } });
+    return json({ success: true });
+  }
   if (req.method === "POST") {
     const member = body.userId
       ? await Member.findById(id(body.userId))
@@ -128,27 +140,43 @@ async function dispatchDriveRequest(
   await connectDB();
   const method = req.method,
     [section, key, action] = segments;
-  if (method !== "GET") await rateLimit(`write:${actor.id}`, 120);
+  if (method !== "GET") {
+    const { writeRequestsPerMinute } = await getSettings();
+    if (writeRequestsPerMinute) await rateLimit(`write:${actor.id}`, writeRequestsPerMinute);
+  }
   if (section === "files" && !key && method === "GET") {
     const folders = await FolderModel.find().lean<any[]>();
     const bySlug = new Map(folders.map((f) => [f.slug, f]));
     const visibleFilter: any = { $and: [liveFilter()] };
-    if (actor.role !== "admin") {
-      const deniedFolders = folders
-        .filter(
-          (folder) => !canReadFolder({ ...actor, api: undefined }, folder),
-        )
-        .map((folder) => folder.slug);
+    // Admins may browse a member's space (?owner=<id>) or everything (?owner=all).
+    const owner = req.nextUrl.searchParams.get("owner"),
+      scope = req.nextUrl.searchParams.get("scope");
+    if (owner && actor.role !== "admin")
+      fail(403, "Only administrators can browse other members' files");
+    if (owner && owner !== "all") visibleFilter.$and.push({ uploadedBy: owner });
+    if (!owner) {
+      // Mirrors canReadFile: inside a custom folder, folder access comes first.
+      const viewer = { ...actor, api: undefined, role: "member" as const },
+        readable = folders.filter((f) => canReadFolder(viewer, f)).map((f) => f.slug),
+        unreadable = folders.filter((f) => !canReadFolder(viewer, f)).map((f) => f.slug);
+      const sharedWithMe = {
+        uploadedBy: { $ne: actor.id },
+        folder: { $nin: unreadable },
+        $or: [
+          { visibility: "members" },
+          { allowedUsers: actor.id },
+          {
+            folder: { $in: readable },
+            $or: [{ allowedUsers: { $size: 0 } }, { allowedUsers: { $exists: false } }],
+          },
+        ],
+      };
       visibleFilter.$and.push(
-        { folder: { $nin: deniedFolders } },
-        {
-          $or: [
-            { uploadedBy: actor.id },
-            { allowedUsers: actor.id },
-            { allowedUsers: { $size: 0 } },
-            { allowedUsers: { $exists: false } },
-          ],
-        },
+        scope === "shared"
+          ? sharedWithMe
+          : scope === "mine"
+            ? { uploadedBy: actor.id }
+            : { $or: [{ uploadedBy: actor.id }, sharedWithMe] },
       );
     }
     for (const rule of actor.api
@@ -215,10 +243,19 @@ async function dispatchDriveRequest(
   }
   if (section === "folders" && !key) {
     if (method === "GET") {
-      const folders = await FolderModel.find().sort({ name: 1 }).lean<any[]>();
+      const folders = await FolderModel.find().sort({ name: 1 }).lean<any[]>(),
+        owner = req.nextUrl.searchParams.get("owner");
+      if (owner && actor.role !== "admin")
+        fail(403, "Only administrators can browse other members' folders");
+      // Admins see their own space by default, like everyone else.
+      const viewer = owner ? actor : { ...actor, role: "member" as const };
       return json({
         success: true,
-        data: folders.filter((f) => canReadFolder(actor, f)),
+        data: folders.filter(
+          (f) =>
+            canReadFolder(viewer, f) &&
+            (!owner || owner === "all" || f.createdBy === owner),
+        ),
       });
     }
     if (method === "POST") {
@@ -283,90 +320,7 @@ async function dispatchDriveRequest(
       return fail(405, "Method not allowed");
     });
   }
-  if (section === "upload" && method === "POST") {
-    const settings = await getSettings();
-    const max =
-      Math.min(
-        settings.uploadMaxMb ?? 2048,
-        positiveInteger(process.env.UPLOAD_MAX_MB || 100, 2048),
-      ) *
-      1024 *
-      1024;
-    const length = Number(req.headers.get("content-length"));
-    if (!length) return fail(411, "Content-Length is required");
-    if (length > max + 1024 * 1024) return fail(413, "Upload is too large");
-    const form = await req.formData(),
-      entries = form
-        .getAll("files")
-        .filter((v): v is File => typeof v !== "string");
-    if (!entries.length || entries.length > 20)
-      return fail(400, "Select between 1 and 20 files");
-    if (entries.reduce((n, f) => n + f.size, 0) > max)
-      return fail(413, "Upload is too large");
-    const requested = String(form.get("folder") || "all");
-    return withLocks([`folder:${requested}`], async () => {
-      let override: string | null = null;
-      if (!builtins.has(requested) && requested !== "all") {
-        const folder = await folderFor(requested);
-        if (!canReadFolder(actor, folder))
-          return fail(403, "Folder access denied");
-        override = requested;
-      }
-      const seconds = form.get("expiresIn");
-      const expiresAt = seconds
-        ? new Date(Date.now() + positiveInteger(seconds, 31536000) * 1000)
-        : null;
-      for (const entry of entries) {
-        const folder =
-          override || mimeToFolder(resolveMimeType(entry.type, entry.name));
-        if (!tokenAllowsFolder(actor, folder))
-          fail(403, "Upload destination is outside this token’s resources");
-      }
-      // Validate the entire batch before writing any file.
-      entries.forEach((f) => safeName(f.name));
-      const created: any[] = [];
-      const total = entries.reduce((n, f) => n + f.size, 0);
-      await reserveBytes(total);
-      try {
-        for (const entry of entries) {
-          const mime = resolveMimeType(entry.type, entry.name),
-            folder = override || mimeToFolder(mime),
-            storedName = generateStoredName(entry.name);
-          const location = filePath(folder, storedName),
-            buffer = Buffer.from(await entry.arrayBuffer());
-          await fs.mkdir(path.dirname(location), { recursive: true });
-          try {
-            await fs.writeFile(location, buffer, { flag: "wx" });
-            const doc = await FileModel.create({
-              name: entry.name,
-              storedName,
-              folder,
-              mimeType: mime,
-              size: buffer.length,
-              url: fileUrl(folder, storedName),
-              uploadedBy: actor.id,
-              uploadedByUsername: actor.name,
-              expiresAt,
-            });
-            created.push(doc);
-          } catch (error) {
-            await fs.unlink(location).catch(() => {});
-            throw error;
-          }
-        }
-      } catch (error) {
-        for (const file of created) {
-          await FileModel.deleteOne({ _id: file._id });
-          await fs
-            .unlink(filePath(file.folder, file.storedName))
-            .catch(() => {});
-        }
-        await releaseBytes(total);
-        throw error;
-      }
-      return json({ success: true, data: created }, 201);
-    });
-  }
+  if (section === "upload" && method === "POST") return receiveUpload(req, actor);
   if (section === "share" && key && method === "DELETE") {
     const share = await ShareModel.findOne({ token: key });
     if (!share) return fail(404, "Link not found");
@@ -413,7 +367,7 @@ async function dispatchDriveRequest(
           expiresAt: shareExpiry,
           maxDownloads:
             body.maxDownloads !== undefined && body.maxDownloads !== null
-              ? positiveInteger(body.maxDownloads, 1000000)
+              ? positiveInteger(body.maxDownloads, Number.MAX_SAFE_INTEGER)
               : null,
           createdBy: actor.id,
         });
@@ -427,10 +381,12 @@ async function dispatchDriveRequest(
         fail(403, "Copy destination is outside this token’s resources");
       const storedName = generateStoredName(file.name),
         destination = filePath(file.folder, storedName);
-      await reserveBytes(file.size);
+      await reserveBytes(file.size, actor.id);
       try {
         await fs.copyFile(filePath(file.folder, file.storedName), destination);
         const copy = await FileModel.create({
+          // The copy belongs to whoever made it, so its key is re-wrapped for them.
+          encryption: file.encryption ? rewrap(file.encryption, actor.id) : null,
           name: `Copy of ${file.name}`.slice(0, 255),
           storedName,
           folder: file.folder,
@@ -440,63 +396,78 @@ async function dispatchDriveRequest(
           uploadedBy: actor.id,
           uploadedByUsername: actor.name,
           expiresAt: file.expiresAt,
-          allowedUsers: file.allowedUsers,
         });
         return json({ success: true, data: copy }, 201);
       } catch (error) {
         await fs.unlink(destination).catch(() => {});
-        await releaseBytes(file.size);
+        await releaseBytes(file.size, actor.id);
         throw error;
       }
     }
     if (action === "content") {
-      const editable =
-        /\.(txt|md|markdown|json|js|jsx|ts|tsx|css|scss|html|htm|xml|csv|yml|yaml|py|sql|lua|ini|cfg|conf|log|sh|bash|bat|c|cpp|h|cs|toml|env|rb|go|rs|java|swift|kt|php|graphql|vue|svelte|r|dart|gitignore|dockerfile|makefile)$/i.test(
-          file.name,
-        ) ||
-        file.mimeType.startsWith("text/") ||
-        [
-          "application/json",
-          "application/javascript",
-          "application/typescript",
-          "application/xml",
-          "application/x-sh",
-        ].includes(file.mimeType);
-      if (!editable) return fail(415, "This file cannot be edited as text");
-      if (file.size > 2 * 1024 * 1024)
-        return fail(413, "The editor is limited to 2 MiB");
-      if (method === "GET")
+      if (!isEditableTextFile(file.name, file.mimeType))
+        return fail(415, "This file cannot be edited as text");
+      // OpenDocument files travel as base64 and are converted in the browser.
+      const odt = isOdtFile(file.name, file.mimeType),
+        limit = await editorMaxBytes(),
+        tooLarge = `The editor is limited to ${formatBytes(limit)}`;
+      if (file.size > limit) return fail(413, tooLarge);
+      const location = filePath(file.folder, file.storedName);
+      if (method === "GET") {
+        const data = await readStored(location, file);
+        await recordEvent(req, "view", { actor, file, bytes: data.length });
         return json({
           success: true,
-          content: await fs.readFile(
-            filePath(file.folder, file.storedName),
-            "utf8",
-          ),
+          encoding: odt ? "base64" : "utf8",
+          content: data.toString(odt ? "base64" : "utf8"),
         });
+      }
       if (method === "PUT") {
-        const body = await readJson(req, 12 * 1024 * 1024 + 1024);
+        // base64 and JSON escaping can grow the payload well beyond the file.
+        const body = await readJson(req, Number.isFinite(limit) ? limit * 7 + 1024 : Infinity);
         if (typeof body.content !== "string")
           return fail(400, "Invalid content");
-        if (Buffer.byteLength(body.content) > 2 * 1024 * 1024)
-          return fail(413, "The editor is limited to 2 MiB");
-        const delta = Buffer.byteLength(body.content) - file.size;
-        if (delta > 0) await reserveBytes(delta);
-        const location = filePath(file.folder, file.storedName),
-          temp = `${location}.${crypto.randomUUID()}.tmp`;
+        let data: Buffer;
+        if (odt) {
+          if (body.encoding !== "base64") return fail(400, "Invalid content");
+          data = Buffer.from(body.content, "base64");
+          if (data.length > limit) return fail(413, tooLarge);
+          try {
+            const entries = unzipSync(data, {
+              filter: (entry) => entry.name === "mimetype" || entry.name === "content.xml",
+            });
+            if (
+              Buffer.from(entries.mimetype ?? []).toString() !== ODT_MIME ||
+              !entries["content.xml"]
+            )
+              return fail(400, "Invalid OpenDocument file");
+          } catch {
+            return fail(400, "Invalid OpenDocument file");
+          }
+        } else {
+          data = Buffer.from(body.content, "utf8");
+          if (data.length > limit) return fail(413, tooLarge);
+        }
+        const owner = file.uploadedBy || undefined,
+          delta = data.length - file.size;
+        if (delta > 0) await reserveBytes(delta, owner);
+        const temp = `${location}.${crypto.randomUUID()}.tmp`;
+        let encryption;
         try {
-          await fs.writeFile(temp, body.content);
+          encryption = await writeStored(temp, data, file.uploadedBy || actor.id, "wx");
           await fs.rename(temp, location);
         } catch (error) {
-          if (delta > 0) await releaseBytes(delta);
+          if (delta > 0) await releaseBytes(delta, owner);
           throw error;
         } finally {
           await fs.unlink(temp).catch(() => {});
         }
         await FileModel.updateOne(
           { _id: key },
-          { $set: { size: Buffer.byteLength(body.content) } },
+          { $set: { size: data.length, encryption } },
         );
-        if (delta < 0) await releaseBytes(-delta);
+        if (delta < 0) await releaseBytes(-delta, owner);
+        await recordEvent(req, "edit", { actor, file, bytes: data.length });
         return json({ success: true });
       }
     }
@@ -564,7 +535,10 @@ async function dispatchDriveRequest(
       });
       const removed = await FileModel.deleteOne({ _id: key });
       await ShareModel.deleteMany({ fileId: key });
-      if (removed.deletedCount) await releaseBytes(file.size);
+      if (removed.deletedCount) {
+        await releaseBytes(file.size, file.uploadedBy || undefined);
+        await recordEvent(req, "delete", { actor, file, bytes: file.size });
+      }
       return json({ success: true });
     }
   }

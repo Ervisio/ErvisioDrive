@@ -84,7 +84,7 @@ export function Documentation() {
           ].map(([heading, text]) => (
             <section key={heading} className="panel">
               <h2 className="font-semibold text-orange-400">{t(heading)}</h2>
-              <p className="mt-3 text-sm leading-relaxed text-white/50">
+              <p className="mt-3 text-sm leading-relaxed text-ink-dim">
                 {t(text)}
               </p>
             </section>
@@ -114,10 +114,10 @@ export function Documentation() {
                   /api/v1{operation.path}
                 </code>
               </summary>
-              <p className="mt-4 text-sm text-white/60">
+              <p className="mt-4 text-sm text-ink-dim">
                 {t(operation.summary)}
               </p>
-              <p className="mt-3 text-xs text-white/35">
+              <p className="mt-3 text-xs text-ink-faint">
                 {t("Required permission")}:{" "}
                 <code className="text-orange-300">
                   {operation.scope || t("Valid token only")}
@@ -131,12 +131,12 @@ export function Documentation() {
                       ? " · multipart/form-data"
                       : " · application/json"}
                   </h3>
-                  <pre className="max-h-96 overflow-auto rounded-xl bg-black/30 p-4 text-xs leading-relaxed text-white/55">
+                  <pre className="max-h-96 overflow-auto rounded-card bg-black/30 p-4 text-xs leading-relaxed text-ink-dim">
                     {JSON.stringify(schemas[operation.body], null, 2)}
                   </pre>
                 </>
               )}
-              <p className="mt-4 text-xs leading-relaxed text-white/35">
+              <p className="mt-4 text-xs leading-relaxed text-ink-faint">
                 {t(
                   "401: invalid token · 403: insufficient permission or content access · 409: conflict · 413: quota/size limit · 429: rate limited. The OpenAPI document includes all request and response schemas.",
                 )}
@@ -158,7 +158,7 @@ export function Documentation() {
               className="panel flex flex-col justify-between gap-2 sm:flex-row"
             >
               <code className="break-all text-sm text-orange-300">{scope}</code>
-              <p className="text-sm text-white/45">{t(PERMISSIONS[scope])}</p>
+              <p className="text-sm text-ink-dim">{t(PERMISSIONS[scope])}</p>
             </div>
           ))}
         </div>
@@ -173,7 +173,7 @@ export function Documentation() {
           {Object.entries(examples).map(([title, code]) => (
             <section className="panel" key={title}>
               <h2 className="mb-3 font-medium">{t(title)}</h2>
-              <pre className="overflow-x-auto rounded-xl bg-black/30 p-4 text-xs leading-relaxed text-white/65">
+              <pre className="overflow-x-auto rounded-card bg-black/30 p-4 text-xs leading-relaxed text-ink-dim">
                 {code}
               </pre>
             </section>
@@ -181,14 +181,14 @@ export function Documentation() {
         </div>
       )}
       {tab === "Cognito" && (
-        <article className="panel mt-5 space-y-5 text-sm leading-relaxed text-white/55">
+        <article className="panel mt-5 space-y-5 text-sm leading-relaxed text-ink-dim">
           <h2 className="text-lg font-bold text-white">AWS Cognito</h2>
           <p>
             {t(
               "Create a Cognito User Pool and an app client with the authorization code grant. Configure a managed login domain, allow openid email profile, and add your callback URL.",
             )}
           </p>
-          <code className="block break-all rounded-xl bg-black/30 p-4">
+          <code className="block break-all rounded-card bg-black/30 p-4">
             https://drive.example.com/api/auth/callback/cognito
           </code>
           <p>
@@ -196,7 +196,7 @@ export function Documentation() {
               "Set the following variables in .env, then restart Docker Compose. The issuer is the user-pool issuer, not the managed login domain.",
             )}
           </p>
-          <pre className="overflow-x-auto rounded-xl bg-black/30 p-4 text-xs">{`COGNITO_ISSUER='https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_POOLID'\nCOGNITO_CLIENT_ID='your-app-client-id'\nCOGNITO_CLIENT_SECRET='your-client-secret'`}</pre>
+          <pre className="overflow-x-auto rounded-card bg-black/30 p-4 text-xs">{`COGNITO_ISSUER='https://cognito-idp.eu-west-1.amazonaws.com/eu-west-1_POOLID'\nCOGNITO_CLIENT_ID='your-app-client-id'\nCOGNITO_CLIENT_SECRET='your-client-secret'`}</pre>
           <p>
             {t(
               "Clients with a secret and public clients using PKCE are supported. For a public client, leave COGNITO_CLIENT_SECRET empty. email_verified must be true. The provider identity is bound to issuer + sub; Cognito groups never grant workspace admin rights.",

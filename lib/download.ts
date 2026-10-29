@@ -9,6 +9,9 @@ import connectDB from "@/lib/db/mongoose";
 import { fail, rateLimit } from "@/lib/http";
 import { liveFilter } from "@/lib/drive";
 import { prepareFile } from "@/lib/serve-file";
+import { recordEvent } from "@/lib/events";
+import { canReadFile } from "@/lib/policy";
+import FolderModel from "@/models/CdnFolder";
 
 const form = (token: string, locale: Locale, invalid = false) => {
   const t = (key: string) => translate(locale, key);
@@ -46,13 +49,23 @@ export async function publicDownload(req: NextRequest, token: string) {
     return fail(410, "Link expired");
   if (share.maxDownloads !== null && share.downloadCount >= share.maxDownloads)
     return fail(410, "Download limit reached");
-  if (!(await Member.exists({ _id: share.createdBy })))
-    return fail(410, "The link creator is no longer authorized");
+  const creator = await Member.findById(share.createdBy).lean<any>();
+  if (!creator) return fail(410, "The link creator is no longer authorized");
   const file = await FileModel.findOne({
     _id: share.fileId,
     ...liveFilter(),
   }).lean<any>();
   if (!file) return fail(410, "File removed or expired");
+  // The link only works while its creator can still read the file.
+  const folder = await FolderModel.findOne({ slug: file.folder }).lean<any>();
+  if (
+    !canReadFile(
+      { id: String(creator._id), email: creator.email, name: creator.name, role: creator.role },
+      file,
+      folder,
+    )
+  )
+    return fail(410, "The link creator is no longer authorized");
   if (share.password) {
     if (req.method === "GET") return form(token, locale);
     const length = Number(req.headers.get("content-length"));
@@ -91,5 +104,7 @@ export async function publicDownload(req: NextRequest, token: string) {
     await prepared.close();
     return fail(410, "Link expired, revoked or download limit reached");
   }
+  if (prepared.start === 0)
+    await recordEvent(req, "share_download", { file, bytes: prepared.bytes, channel: "public" });
   return prepared.response();
 }

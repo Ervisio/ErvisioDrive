@@ -8,11 +8,10 @@ export interface CdnFolderDoc {
   name: string;
   /** Optional description shown in the admin UI */
   description: string;
-  /**
-   * User IDs that can access this folder (and all files inside it) via the
-   * drive. Empty array means accessible to all currently whitelisted members.
-   */
+  /** User IDs the creator shared this folder (and the files inside) with. */
   allowedUsers: string[];
+  /** private: creator, allowedUsers and admins; members: every member. */
+  visibility: "private" | "members";
   /** Who created the folder */
   createdBy: string;
   createdAt: Date;
@@ -40,6 +39,7 @@ const cdnFolderSchema = new Schema<CdnFolderDoc>(
     name: { type: String, required: true, trim: true, maxlength: 80 },
     description: { type: String, default: "", trim: true, maxlength: 300 },
     allowedUsers: { type: [String], default: [] },
+    visibility: { type: String, enum: ["private", "members"], default: "private" },
     createdBy: { type: String, default: "" },
   },
   { timestamps: true },

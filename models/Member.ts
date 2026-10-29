@@ -23,6 +23,8 @@ const schema = new Schema(
     inviteExpiresAt: { type: Date, default: null },
     sessionVersion: { type: Number, default: 0 },
     lastLogin: { type: Date, default: null },
+    // Storage quota override in GiB; null uses the workspace default, 0 is unlimited.
+    quotaGb: { type: Number, default: null },
   },
   { timestamps: true },
 );

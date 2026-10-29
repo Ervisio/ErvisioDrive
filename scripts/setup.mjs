@@ -51,12 +51,18 @@ export function validate(values) {
     throw new Error(
       "For remote access, use HTTPS through a reverse proxy or tunnel",
     );
+  // 0 means unlimited; the in-app settings can override it later.
   if (
+    values.STORAGE_QUOTA_GB === "" ||
     !Number.isFinite(Number(values.STORAGE_QUOTA_GB)) ||
-    Number(values.STORAGE_QUOTA_GB) <= 0 ||
-    Number(values.STORAGE_QUOTA_GB) > 1000000
+    Number(values.STORAGE_QUOTA_GB) < 0
   )
     throw new Error("Invalid quota");
+  if (
+    values.STORAGE_ENCRYPTION_KEY &&
+    !/^[a-f0-9]{64}$/i.test(values.STORAGE_ENCRYPTION_KEY)
+  )
+    throw new Error("STORAGE_ENCRYPTION_KEY must be 64 hex characters");
   if (
     !/^\d+$/.test(values.APP_PORT) ||
     Number(values.APP_PORT) < 1 ||
@@ -112,6 +118,8 @@ export async function setup(args = process.argv.slice(2)) {
   try {
     const values = { ...previous };
     values.NEXTAUTH_SECRET ||= crypto.randomBytes(48).toString("base64");
+    // Losing this key makes stored files unreadable: it is generated once and kept.
+    values.STORAGE_ENCRYPTION_KEY ||= crypto.randomBytes(32).toString("hex");
     if (!resize) {
       values.APP_PORT =
         options.port || (await ask("Local port", values.APP_PORT || "3000"));
@@ -139,13 +147,29 @@ export async function setup(args = process.argv.slice(2)) {
         options["google-client-id"] ?? values.GOOGLE_CLIENT_ID ?? "";
       values.GOOGLE_CLIENT_SECRET =
         options["google-client-secret"] ?? values.GOOGLE_CLIENT_SECRET ?? "";
+      // The Ervisio plugin reaches the drive through a unix socket on the host.
+      const ervisio = (
+        options.ervisio ||
+        (await ask(
+          "Ervisio plugin integration (yes/no)",
+          values.ERVISIO_SOCKET_DIR
+            ? "yes"
+            : process.platform === "linux" && fs.existsSync("/run")
+              ? "yes"
+              : "no",
+        ))
+      ).toLowerCase();
+      if (!["yes", "no"].includes(ervisio))
+        throw new Error("Answer yes or no for the Ervisio integration");
+      if (ervisio === "yes") values.ERVISIO_SOCKET_DIR = "/run/ervisio-drive";
+      else delete values.ERVISIO_SOCKET_DIR;
       values.UPLOAD_MAX_MB = values.UPLOAD_MAX_MB || "100";
       values.TRUST_PROXY = values.TRUST_PROXY || "false";
     }
     values.STORAGE_QUOTA_GB =
       options.quota ||
       (await ask(
-        "Maximum file quota in GiB (no preallocation)",
+        "Maximum file quota in GiB (0 = unlimited, no preallocation)",
         values.STORAGE_QUOTA_GB || "100",
       ));
     validate(values);

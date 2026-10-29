@@ -9,7 +9,7 @@ A private, self-hosted drive extracted from FusionHub. Dark UI, folders, preview
 Install Docker Engine with Compose v2 on Linux, or Docker Desktop in Linux-container mode on Windows/macOS. Host Node.js and MongoDB installations are not needed.
 
 ```bash
-git clone https://github.com/Fonlogen/ErvisioDrive.git
+git clone https://github.com/Ervisio/ErvisioDrive.git
 cd ErvisioDrive
 ./setup.sh
 ```
@@ -56,11 +56,26 @@ Lowering quota below current usage preserves existing files and blocks growth. T
 All members can select their language. Administrators can configure:
 
 - Workspace name and default language for visitors without a saved preference.
-- Effective upload limit, bounded by the host's `UPLOAD_MAX_MB`.
+- **Space and limits**: total space, per-file upload size, default per-person quota, API request rate and statistics retention. An empty value for total space or upload size follows `.env` (`STORAGE_QUOTA_GB`, `UPLOAD_MAX_MB`); `0` means unlimited.
+- Per-person quota in **Users and access**: default, custom or unlimited. Administrators can also browse a member's files.
 - Google/Cognito availability after their credentials are configured on the host.
 - API availability, member API access, rate limits, token lifetimes and public-link policy.
 
-API/member-sharing switches apply on the next request, including to existing tokens and links. Local login remains available for recovery. Provider secrets stay in `.env`; the settings API never returns them. Disk quota and paths stay under host control through the setup scripts.
+API/member-sharing switches apply on the next request, including to existing tokens and links. Local login remains available for recovery. Provider secrets stay in `.env`; the settings API never returns them. Storage paths stay under host control through the setup scripts.
+
+## Encryption at rest
+
+Files are encrypted on disk with a per-member key (AES-256-GCM) derived from `STORAGE_ENCRYPTION_KEY`, which setup generates. Back that key up with the database: without it the files cannot be read. Installations created before encryption keep reading their plain files and encrypt new uploads.
+
+## Statistics
+
+**Statistics** shows storage by file type and by member, uploads and downloads over time, and API usage per token: administrators see the whole drive, members see their own files and tokens. The page reads `/api/stats` (`overview`, `tokens`, `tokens/{id}`) with the browser session.
+
+## Ervisio plugin
+
+ErvisioDrive can be managed from an [Ervisio](https://github.com/Ervisio/ervisio) console. Answer **yes** to "Ervisio plugin integration" during setup (or pass `--ervisio yes`): the drive then opens an administration socket at `/run/ervisio-drive/api.sock` on the host. The `/api/plugin/*` routes are served only on that socket, behind a per-process secret; over the network they answer 404.
+
+Install **ErvisioDrive** from **Plugins** in the console. The plugin shows the drive's state and usage, edits space and limits, manages people and quotas, and can publish the drive on its own web address through Caddy. Its source is in [`plugin/`](plugin/); releases are built by `.github/workflows/plugin-release.yml` from `vX.Y.Z` tags.
 
 ## Accounts and authentication
 
@@ -131,8 +146,10 @@ The editor supports up to 2 MiB of UTF-8 text. Expired files become inaccessible
 | `NEXTAUTH_SECRET` | Stable random session secret generated at setup |
 | `BOOTSTRAP_ADMIN_EMAIL` | Initial owner email on an empty database only |
 | `DRIVE_STORAGE_PATH` | Host file directory |
-| `STORAGE_QUOTA_GB` | File quota in GiB; changed through `--resize` |
-| `UPLOAD_MAX_MB` | Host upload ceiling in MiB; default 100 |
+| `STORAGE_QUOTA_GB` | File quota in GiB, `0` = unlimited; changed through `--resize`, overridable in Settings |
+| `UPLOAD_MAX_MB` | Upload size in MiB, `0` = unlimited; default 100, overridable in Settings |
+| `STORAGE_ENCRYPTION_KEY` | 64 hex characters; encrypts stored files. Back it up |
+| `ERVISIO_SOCKET_DIR` | Host directory for the Ervisio plugin socket; empty for a standalone install |
 | `APP_PORT`, `BIND_ADDRESS` | Host port and interface; default 3000 / loopback |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional Google OAuth |
 | `COGNITO_ISSUER`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET` | Optional Cognito OIDC |
@@ -150,7 +167,7 @@ docker compose up -d
 docker compose run --rm bootstrap node scripts/ops.mjs cleanup
 ```
 
-Back up **the file directory, MongoDB dump and `.env` together**. Pause `app` and `cleanup` for a consistent snapshot. MongoDB uses the `ervisiodrive_mongo_data` volume.
+Back up **the file directory, MongoDB dump and `.env` (with `STORAGE_ENCRYPTION_KEY`) together**. Pause `app` and `cleanup` for a consistent snapshot. MongoDB uses the `ervisiodrive_mongo_data` volume.
 
 Reconcile metadata and quota after recovery or an abnormal shutdown:
 
@@ -183,6 +200,6 @@ Integration/HTTP tests use disposable MongoDB instances. CI additionally checks 
 
 ## Origin
 
-Drive UI extracted from `KFScripts/FusionHub` at `ad365d74e3e6f1c5797b289d2ee70c633bbd838c`. Authentication, authorization, APIs, private storage, quota and distribution are independent. No production secrets, cookies or unrelated portal modules were copied. Private project; no open-source license added.
+Drive UI extracted from `KFScripts/FusionHub` at `ad365d74e3e6f1c5797b289d2ee70c633bbd838c`. Authentication, authorization, APIs, private storage, quota and distribution are independent. No production secrets, cookies or unrelated portal modules were copied. Released under the [MIT license](LICENSE).
 
 [Italian installation reference](docs/README.it.md)

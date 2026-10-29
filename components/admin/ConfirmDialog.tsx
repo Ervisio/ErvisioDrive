@@ -25,7 +25,7 @@ export function ConfirmDialog({
   return (
     <AdminModal open={open} title={title} onClose={onCancel} size="md">
       {description && (
-        <p className="mb-6 break-words text-sm leading-relaxed text-white/50">
+        <p className="mb-6 break-words text-sm leading-relaxed text-ink-dim">
           {description}
         </p>
       )}

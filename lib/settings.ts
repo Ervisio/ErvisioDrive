@@ -5,10 +5,15 @@ import { requirePermission } from "@/lib/permissions";
 import type { Actor } from "@/lib/policy";
 import { fail, json, readJson } from "@/lib/http";
 
+// Limits: null means "use the environment value", 0 means unlimited.
 export const settingsDefaults = {
   siteName: "ErvisioDrive",
   defaultLocale: "en" as "en" | "it",
   uploadMaxMb: null as number | null,
+  storageQuotaGb: null as number | null,
+  userQuotaGb: 0,
+  maxFilesPerUpload: 0,
+  editorMaxMb: 10,
   sharingEnabled: true,
   maxShareLifetimeHours: 0,
   apiEnabled: true,
@@ -16,9 +21,33 @@ export const settingsDefaults = {
   defaultTokenLifetimeDays: 30,
   maxTokenLifetimeDays: 365,
   apiRequestsPerMinute: 120,
+  writeRequestsPerMinute: 0,
+  statsRetentionDays: 365,
   googleEnabled: true,
   cognitoEnabled: true,
 };
+/** Settings that fall back to an environment variable when null. */
+const ENV_BACKED = new Set(["uploadMaxMb", "storageQuotaGb"]);
+/** Settings that accept fractions (sizes in GiB). */
+const FRACTIONAL = new Set(["storageQuotaGb", "userQuotaGb", "uploadMaxMb", "editorMaxMb"]);
+/** Settings where 0 is not meaningful. */
+const POSITIVE = new Set(["defaultTokenLifetimeDays", "maxTokenLifetimeDays"]);
+
+const MB = 1024 * 1024;
+/** Upload limit from UPLOAD_MAX_MB; 0 means unlimited. */
+export function envUploadMaxMb() {
+  const mb = Number(process.env.UPLOAD_MAX_MB ?? 100);
+  if (!Number.isFinite(mb) || mb < 0) throw new Error("Invalid UPLOAD_MAX_MB");
+  return mb;
+}
+const toBytes = (mb: number) => (mb === 0 ? Infinity : Math.floor(mb * MB));
+export async function uploadMaxBytes() {
+  const { uploadMaxMb } = await getSettings();
+  return toBytes(uploadMaxMb ?? envUploadMaxMb());
+}
+export async function editorMaxBytes() {
+  return toBytes((await getSettings()).editorMaxMb);
+}
 export async function getSettings() {
   await connectDB();
   const doc = await Settings.findById("workspace").lean();
@@ -50,8 +79,10 @@ export async function settingsRequest(req: NextRequest, actor: Actor) {
       success: true,
       data: await getSettings(),
       environment: {
-        uploadMaxMb: Number(process.env.UPLOAD_MAX_MB || 100),
-        quotaGb: Number(process.env.STORAGE_QUOTA_GB || 100),
+        uploadMaxMb: envUploadMaxMb(),
+        quotaGb: Number(process.env.STORAGE_QUOTA_GB ?? 100),
+        encryption: !!process.env.STORAGE_ENCRYPTION_KEY,
+        trustProxy: process.env.TRUST_PROXY === "true",
         googleConfigured: !!(
           process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
         ),
@@ -81,24 +112,16 @@ export async function settingsRequest(req: NextRequest, actor: Actor) {
     } else if (typeof (settingsDefaults as any)[key] === "boolean") {
       if (typeof value !== "boolean") fail(400, `Invalid boolean: ${key}`);
       update[key] = value;
-    } else if (key === "uploadMaxMb" && value === null) update[key] = null;
+    } else if (ENV_BACKED.has(key) && value === null) update[key] = null;
     else {
-      const ranges: Record<string, [number, number]> = {
-        uploadMaxMb: [
-          1,
-          Math.min(2048, Number(process.env.UPLOAD_MAX_MB || 100)),
-        ],
-        maxShareLifetimeHours: [0, 87600],
-        defaultTokenLifetimeDays: [1, 365],
-        maxTokenLifetimeDays: [1, 365],
-        apiRequestsPerMinute: [1, 10000],
-      };
-      const [min, max] = ranges[key] || [1, 365];
+      const integer = !FRACTIONAL.has(key),
+        min = POSITIVE.has(key) ? 1 : 0;
       if (
         typeof value !== "number" ||
-        !Number.isSafeInteger(value) ||
+        !Number.isFinite(value) ||
         value < min ||
-        value > max
+        value > Number.MAX_SAFE_INTEGER ||
+        (integer && !Number.isInteger(value))
       )
         fail(400, `Invalid value: ${key}`);
       update[key] = value;

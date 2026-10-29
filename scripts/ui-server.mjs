@@ -16,6 +16,7 @@ const env = {
   MONGODB_URI: mongo.getUri("ui"),
   STORAGE_DIR: storage,
   STORAGE_QUOTA_GB: "1",
+  STORAGE_ENCRYPTION_KEY: crypto.randomBytes(32).toString("hex"),
   NEXTAUTH_URL: origin,
   NEXTAUTH_SECRET: crypto.randomBytes(48).toString("hex"),
   BOOTSTRAP_ADMIN_EMAIL: "ui-owner@example.com",
@@ -108,6 +109,17 @@ await db
       $unset: { inviteHash: 1, inviteExpiresAt: 1 },
     },
   );
+// A second administrator, so the limits test does not share the owner's
+// sign-in rate limit with the other tests.
+await db.collection("drivemembers").insertOne({
+  email: "ui-admin@example.com",
+  name: "UI Admin",
+  role: "admin",
+  isOwner: false,
+  passwordHash: `scrypt-v1$${salt.toString("hex")}$${passwordHash.toString("hex")}`,
+  createdAt: now,
+  updatedAt: now,
+});
 await fs.cp(".next/static", ".next/standalone/.next/static", {
   recursive: true,
 });

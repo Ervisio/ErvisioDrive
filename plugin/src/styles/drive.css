@@ -1,0 +1,100 @@
+/* ErvisioDrive page (round 008, variant A): header, inner menu like plugin-docker, one section at a time.
+   Small grey text uses --ink2 (never --ink3): --ink3 fails contrast in dark mode. */
+.dv-root { --acc: var(--h-ov); --acc-s: var(--h-ov-s); max-width: 1180px; width: 100%; margin: 0 auto; }
+
+/* header */
+.dv-ph { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.dv-tile { width: 46px; height: 46px; border-radius: var(--r-icon, 14px); background: var(--s); color: var(--h); display: grid; place-items: center; flex: none; }
+.dv-tile .ui-icon { width: 21px; height: 21px; }
+.dv-ph-t { flex: 1; min-width: 200px; }
+.dv-ph h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.025em; }
+.dv-ph p { margin: 4px 0 0; color: var(--ink2); font-size: 13.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* inner menu */
+.dv-inner { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 24px; align-items: start; }
+.dv-nav { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 12px; }
+.dv-nav-lab { font-size: 12px; color: var(--ink2); font-weight: 700; padding: 10px 10px 2px; }
+.dv-root .dv-nav-it { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: var(--r-btn, 12px); font-weight: 700; color: var(--ink2); text-align: left; width: 100%; }
+.dv-root .dv-nav-it:hover { background: var(--sunk); color: var(--ink); }
+.dv-root .dv-nav-it[aria-current='page'] { background: var(--acc-s); color: var(--ink); }
+.dv-nav-it .dv-ki { width: 28px; height: 28px; border-radius: 9px; }
+.dv-nav-it .dv-ki .ui-icon { width: 15px; height: 15px; }
+.dv-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+/* cards */
+.dv-card h3 { font-size: 15px; gap: 10px; }
+.dv-card h3 .dv-ki { width: 30px; height: 30px; border-radius: 10px; }
+.dv-card h3 .dv-ki .ui-icon { width: 15px; height: 15px; color: inherit; }
+.dv-card h3 small { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; }
+.dv-h3-end { margin-left: auto; font-size: 13px; }
+.dv-grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.dv-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.dv-fig { background: var(--surface); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dv-fig-l { font-size: 12.5px; color: var(--ink2); }
+.dv-fig b { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+.dv-fig-s { font-size: 12.5px; color: var(--ink2); }
+.dv-missing { align-items: center; }
+.dv-missing .dv-snip { align-self: stretch; }
+
+/* address */
+.dv-note.is-ok { background: var(--ok-s); }
+.dv-note.is-ok > .ui-icon { color: var(--ok); }
+.dv-note .ui-btn { flex: none; }
+.dv-snip { margin: 0; background: var(--surface); border-radius: 12px; padding: 12px 14px; font: 12.5px/1.55 var(--dv-mono); color: var(--ink2); overflow: auto; white-space: pre; }
+.dv-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dv-steps li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.dv-steps .ui-icon { color: var(--ok); width: 16px; height: 16px; flex: none; }
+.dv-acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.dv-acts--end { justify-content: flex-end; }
+.dv-muted .ui-icon { vertical-align: -2px; }
+
+/* settings rows (limits, switches) */
+.dv-rows { display: flex; flex-direction: column; gap: 6px; }
+.dv-set { display: flex; align-items: center; gap: 16px; padding: 10px 12px; border-radius: 12px; background: var(--surface); }
+.dv-set-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dv-set-t b { font-weight: 700; }
+.dv-set-t span { font-size: 12.5px; color: var(--ink2); }
+.dv-set-c { width: 220px; flex: none; }
+.dv-set .ui-in, .dv-person .ui-in { background: var(--sunk); }
+.dv-unit { color: var(--ink2); font-size: 13px; white-space: nowrap; }
+
+/* people */
+.dv-person { display: grid; grid-template-columns: 32px minmax(0, 1fr) 160px 210px; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 12px; background: var(--surface); }
+.dv-av { width: 32px; height: 32px; border-radius: 10px; background: var(--h-usr-s); color: var(--h-usr); display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+.dv-person-t { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dv-person-t b { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dv-person-t span { font-size: 12.5px; color: var(--ink2); }
+.dv-person-m { min-width: 0; }
+
+/* widget */
+.dv-w { display: flex; flex-direction: column; gap: 10px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.dv-w-muted { color: var(--ink2); font-size: 13px; margin: 0; }
+.dv-w-st { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink2); }
+.dv-w-st i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.dv-w-big { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.dv-w-big b { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+.dv-w-big span, .dv-w-n { font-size: 12.5px; color: var(--ink2); }
+.dv-w-n { display: flex; gap: 14px; }
+.dv-w-n b { color: var(--ink); font-weight: 800; }
+.dv-w .ui-btn { align-self: flex-start; }
+
+@media (max-width: 1100px) { .dv-grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .dv-inner { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .dv-nav { flex-direction: row; overflow-x: auto; position: static; gap: 6px; scrollbar-width: none; }
+  .dv-nav::-webkit-scrollbar { display: none; }
+  .dv-nav-lab { display: none; }
+  .dv-root .dv-nav-it { width: auto; flex: none; white-space: nowrap; background: var(--sunk); padding: 0 12px 0 6px; }
+  .dv-ph h1 { font-size: 22px; }
+  .dv-ph .ui-btn { width: 100%; justify-content: center; }
+  .dv-grid3 { grid-template-columns: minmax(0, 1fr); }
+  .dv-set { flex-wrap: wrap; }
+  .dv-set-c { width: 100%; }
+  .dv-person { grid-template-columns: 32px minmax(0, 1fr); }
+  .dv-person-m, .dv-person-q { grid-column: 2; }
+  .dv-person-m:empty { display: none; }
+  .dv-card h3 { flex-wrap: wrap; }
+  .dv-card h3 .dv-h3-end { flex-basis: 100%; margin-left: 40px; text-align: left; }
+  .dv-kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .dv-kv dd { margin-bottom: 8px; word-break: break-all; }
+}

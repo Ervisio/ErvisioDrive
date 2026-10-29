@@ -43,7 +43,7 @@ export function Activate() {
   }
   return (
     <main className="grid min-h-screen place-items-center p-6">
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#111118] p-8">
+      <div className="w-full max-w-md rounded-sheet border border-white/10 bg-sheet p-8">
         <div className="mb-4 flex justify-end">
           <LanguageSwitch />
         </div>
@@ -55,7 +55,7 @@ export function Activate() {
         </h1>
         {done ? (
           <>
-            <p className="my-5 text-sm text-white/50">
+            <p className="my-5 text-sm text-ink-dim">
               {t(
                 "You can now sign in with your email and password. Previous sessions have been closed.",
               )}
@@ -66,7 +66,7 @@ export function Activate() {
           </>
         ) : (
           <form onSubmit={submit} className="mt-6 space-y-4">
-            <p className="text-sm text-white/40">
+            <p className="text-sm text-ink-faint">
               {t(
                 "Use at least 12 characters. Invitations can be used once and expire after 48 hours.",
               )}
@@ -108,7 +108,7 @@ export function Activate() {
             >
               {busy ? t("Saving…") : t("Set password")}
             </button>
-            <p className="text-xs text-white/30">
+            <p className="text-xs text-ink-faint">
               {t(
                 "If this link has expired, ask your administrator for a new invitation.",
               )}

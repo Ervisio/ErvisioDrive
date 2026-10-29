@@ -29,11 +29,12 @@ test("responsive navigation, touch actions and persistent language", async ({
     fullPage: true,
   });
   await page.getByRole("button", { name: "File actions" }).first().click();
-  const actions = page.getByRole("dialog");
+  const actions = page.getByRole("menu");
   await expect(
-    actions.getByRole("button", { name: "Move", exact: true }),
+    actions.getByRole("menuitem", { name: "Move", exact: true }),
   ).toBeVisible();
-  await actions.getByRole("button", { name: "Move", exact: true }).click();
+  await noOverflow(page);
+  await actions.getByRole("menuitem", { name: "Move", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("combobox")).toBeVisible();
   await noOverflow(page);
   await page
@@ -139,4 +140,56 @@ test("create a restricted token in the UI and revoke it", async ({
     headers: { Authorization: "Bearer " + secret },
   });
   expect(revoked.status()).toBe(401);
+});
+test("limits, per-person quota and shared-with-me filter", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("Email", { exact: true }).fill("ui-admin@example.com");
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill("Disposable UI password 123!");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL("http://127.0.0.1:3111/");
+
+  await page.goto("/settings");
+  await page
+    .getByRole("button", { name: "Space and limits", exact: true })
+    .click();
+  const mode = page.getByRole("group", { name: "Quota per person: mode" });
+  await mode.getByRole("button", { name: "Limit", exact: true }).click();
+  await page.getByRole("textbox", { name: "Quota per person" }).fill("5");
+  await noOverflow(page);
+  await page.getByRole("button", { name: "Save settings", exact: true }).click();
+  await expect(page.getByText("Settings saved", { exact: true })).toBeVisible();
+
+  await page.goto("/admin");
+  const card = page
+    .locator(".member-card")
+    .filter({ hasText: "ui-owner@example.com" });
+  await expect(card.getByText("of 5 GB (default)")).toBeVisible();
+  await noOverflow(page);
+  const quota = async (choice: RegExp) => {
+    await card.getByRole("button", { name: "Quota", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: choice }).click();
+    await dialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  };
+  await quota(/^Unlimited$/);
+  await expect(card.getByText("· unlimited quota")).toBeVisible();
+  await quota(/^Default/);
+  await expect(card.getByText("of 5 GB (default)")).toBeVisible();
+
+  await card.getByRole("link", { name: "Browse files", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "You are viewing the space of" }),
+  ).toBeVisible();
+  await expect(page.getByText("Readme.txt", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Back to my drive", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Shared with me", exact: true })
+    .click();
+  await expect(page).toHaveURL(/scope=shared/);
+  await expect(
+    page.getByRole("button", { name: "Shared with me", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
 });

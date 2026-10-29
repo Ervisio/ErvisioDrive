@@ -7934,7 +7934,24 @@
           },
           "quotaBytes": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "nullable": true,
+            "description": "null when unlimited."
+          },
+          "member": {
+            "type": "object",
+            "description": "Usage and quota of the token owner.",
+            "properties": {
+              "usedBytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "quotaBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "nullable": true
+              }
+            }
           }
         },
         "required": [
@@ -8206,11 +8223,31 @@
             ]
           },
           "uploadMaxMb": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 2048,
+            "type": "number",
+            "minimum": 0,
             "nullable": true,
-            "description": "Cannot exceed UPLOAD_MAX_MB on the host."
+            "description": "Per-file limit in MiB. null uses UPLOAD_MAX_MB; 0 is unlimited."
+          },
+          "storageQuotaGb": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Workspace quota in GiB. null uses STORAGE_QUOTA_GB; 0 is unlimited."
+          },
+          "userQuotaGb": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Default quota per member in GiB; 0 is unlimited."
+          },
+          "maxFilesPerUpload": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0 is unlimited."
+          },
+          "editorMaxMb": {
+            "type": "number",
+            "minimum": 0,
+            "description": "0 is unlimited."
           },
           "sharingEnabled": {
             "type": "boolean"
@@ -8218,7 +8255,7 @@
           "maxShareLifetimeHours": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 87600
+            "description": "0 is unlimited."
           },
           "apiEnabled": {
             "type": "boolean"
@@ -8228,18 +8265,26 @@
           },
           "defaultTokenLifetimeDays": {
             "type": "integer",
-            "minimum": 1,
-            "maximum": 365
+            "minimum": 1
           },
           "maxTokenLifetimeDays": {
             "type": "integer",
-            "minimum": 1,
-            "maximum": 365
+            "minimum": 1
           },
           "apiRequestsPerMinute": {
             "type": "integer",
-            "minimum": 1,
-            "maximum": 10000
+            "minimum": 0,
+            "description": "0 is unlimited."
+          },
+          "writeRequestsPerMinute": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0 is unlimited."
+          },
+          "statsRetentionDays": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0 keeps events forever."
           },
           "googleEnabled": {
             "type": "boolean"

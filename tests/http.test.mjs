@@ -25,6 +25,7 @@ test("production HTTP flow: bootstrap, CSRF, local login, file operations and se
     MONGODB_URI: mongo.getUri("drivehttp"),
     STORAGE_DIR: storage,
     STORAGE_QUOTA_GB: "1",
+    STORAGE_ENCRYPTION_KEY: "ab".repeat(32),
     BOOTSTRAP_ADMIN_EMAIL: "owner@example.com",
     NEXTAUTH_URL: base,
     NEXTAUTH_SECRET: "disposable-test-secret-with-at-least-32-characters",
@@ -168,6 +169,14 @@ test("production HTTP flow: bootstrap, CSRF, local login, file operations and se
     assert.equal(upload.status, 201);
     const file = (await upload.json()).data[0];
     assert.equal((await fetch(base + file.url)).status, 401);
+    // Uploads are private until the owner shares them with the workspace.
+    assert.equal((await member(file.url)).status, 403);
+    const shared = await owner(`/api/admin/cdn/files/${file._id}/access`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ visibility: "members" }),
+    });
+    assert.equal(shared.status, 200);
     assert.equal(await (await member(file.url)).text(), "content from HTTP");
     const removed = await owner("/api/admin/members", {
       method: "DELETE",

@@ -76,7 +76,8 @@ export async function authenticateApiToken(req: NextRequest): Promise<Actor> {
       ancestorOwners.some((member) => member.role !== "admin"))
   )
     return fail(403, "Member API access is disabled");
-  await rateLimit(`api:${token._id}`, settings.apiRequestsPerMinute);
+  if (settings.apiRequestsPerMinute)
+    await rateLimit(`api:${token._id}`, settings.apiRequestsPerMinute);
   await ApiToken.updateOne(
     { _id: token._id },
     { $set: { lastUsedAt: new Date() } },

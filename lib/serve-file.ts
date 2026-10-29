@@ -3,16 +3,25 @@ import { Readable } from "node:stream";
 import { NextRequest, NextResponse } from "next/server";
 import { filePath } from "@/lib/storage";
 import { fail } from "@/lib/http";
+import { decryptRange, type Encryption } from "@/lib/crypto-store";
 
 export async function prepareFile(
   req: NextRequest,
-  file: { folder: string; storedName: string; name: string; mimeType: string },
+  file: {
+    folder: string;
+    storedName: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    encryption?: Encryption | null;
+  },
   attachment = false,
 ) {
   const handle = await fs
     .open(filePath(file.folder, file.storedName), "r")
     .catch(() => fail(404, "File not found on disk"));
-  const stat = await handle.stat(),
+  // Encrypted files are served by plaintext offsets; the DB holds the real size.
+  const stat = file.encryption ? { size: file.size } : await handle.stat(),
     range = req.headers.get("range");
   let start = 0,
     end = stat.size - 1,
@@ -58,13 +67,21 @@ export async function prepareFile(
   if (status === 206)
     headers["Content-Range"] = `bytes ${start}-${end}/${stat.size}`;
   return {
+    /** First byte served and response length, for activity statistics. */
+    start,
+    bytes: Math.max(0, end - start + 1),
     close: () => handle.close(),
     response: () => {
       if (stat.size === 0) {
         void handle.close();
         return new NextResponse(null, { status, headers });
       }
-      const stream = handle.createReadStream({ start, end, autoClose: true });
+      const stream = file.encryption
+        ? Readable.from(decryptRange(handle, file.encryption, stat.size, start, end)).on(
+            "close",
+            () => void handle.close(),
+          )
+        : handle.createReadStream({ start, end, autoClose: true });
       req.signal.addEventListener("abort", () => stream.destroy(), {
         once: true,
       });

@@ -1,4 +1,5 @@
 import mongoose, { Schema, model, models, type Types } from "mongoose";
+import type { Encryption } from "@/lib/crypto-store";
 
 export interface CdnFileDoc {
   _id: Types.ObjectId;
@@ -19,11 +20,12 @@ export interface CdnFileDoc {
   uploadedByUsername: string;
   /** Optional auto-deletion timestamp */
   expiresAt: Date | null;
-  /**
-   * User IDs that can access this file inside the authenticated drive.
-   * Empty array = accessible to all currently whitelisted members.
-   */
+  /** User IDs the owner shared this file with. */
   allowedUsers: string[];
+  /** private: owner, people in allowedUsers and admins; members: every member. */
+  visibility: "private" | "members";
+  /** Encryption at rest; null for files written before encryption was enabled. */
+  encryption: Encryption | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +42,8 @@ const cdnFileSchema = new Schema<CdnFileDoc>(
     uploadedByUsername: { type: String, default: "" },
     expiresAt: { type: Date, default: null },
     allowedUsers: { type: [String], default: [] },
+    visibility: { type: String, enum: ["private", "members"], default: "private" },
+    encryption: { type: Schema.Types.Mixed, default: null },
   },
   {
     timestamps: true,

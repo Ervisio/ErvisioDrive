@@ -4,6 +4,8 @@ import useSWR from "swr";
 import { useState } from "react";
 import { AdminModal } from "@/components/admin/AdminModal";
 import { request } from "@/lib/client-request";
+import { Icon } from "@/components/ui/Icon";
+import { faLock, faUsers } from "@fortawesome/free-solid-svg-icons";
 export function FolderAccess({
   slug,
   name,
@@ -36,6 +38,15 @@ export function FolderAccess({
       setBusy(false);
     }
   }
+  async function setVisibility(visibility: "private" | "members") {
+    await mutate({ ...data, isPublic: visibility === "members", visibility }, false);
+    await request(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility }),
+    });
+    await mutate();
+  }
   async function remove(userId: string) {
     await request(url, {
       method: "DELETE",
@@ -50,10 +61,8 @@ export function FolderAccess({
       title={t("Access rules · {name}", { name })}
       onClose={onClose}
     >
-      <p className="mb-5 text-sm text-white/40">
-        {t(
-          "An empty list allows all authorized users. The owner and administrators retain access.",
-        )}
+      <p className="mb-5 text-sm text-ink-faint">
+        {t("The owner and administrators always have access.")}
       </p>
       {error ? (
         <p className="text-rose-400">
@@ -63,6 +72,34 @@ export function FolderAccess({
         </p>
       ) : (
         <>
+          <div
+            role="radiogroup"
+            aria-label={t("Who can open this folder")}
+            className="mb-5 space-y-2"
+          >
+            {(
+              [
+                ["private", faLock, "Private", "You, administrators and the people added below."],
+                ["members", faUsers, "All members", "Anyone authorized in the drive."],
+              ] as const
+            ).map(([value, icon, label, hint]) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={(value === "members") === !!data?.isPublic}
+                disabled={!data}
+                className="visibility-option"
+                onClick={() => setVisibility(value)}
+              >
+                <i aria-hidden="true">
+                  <Icon icon={icon} />
+                </i>
+                <b>{t(label)}</b>
+                <span>{t(hint)}</span>
+              </button>
+            ))}
+          </div>
           <form onSubmit={add} className="flex gap-2">
             <input
               type="email"
@@ -96,11 +133,6 @@ export function FolderAccess({
               </li>
             ))}
           </ul>
-          {data?.isPublic && (
-            <p className="mt-4 text-xs text-white/30">
-              {t("Accessible to all whitelisted users.")}
-            </p>
-          )}
         </>
       )}
     </AdminModal>

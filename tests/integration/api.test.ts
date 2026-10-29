@@ -117,6 +117,8 @@ before(async () => {
       size: 12,
       url: fileUrl(folder, storedName),
       uploadedBy: admin.id,
+      // Shared with every member, so member tokens can exercise the API.
+      visibility: "members",
     });
     if (folder === "documents") fileId = String(file._id);
     else otherId = String(file._id);

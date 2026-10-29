@@ -1,7 +1,9 @@
 "use client";
 import { useI18n } from "@/components/LocaleProvider";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import Link from "next/link";
 import { FolderAccess } from "@/components/FolderAccess";
@@ -43,14 +45,31 @@ import {
   faSort,
   faFileCode,
   faArrowsAlt,
+  faAnglesLeft,
+  faAnglesRight,
+  faTableCellsLarge,
+  faEllipsisVertical,
+  faPenToSquare,
+  faUpRightAndDownLeftFromCenter,
+  faDownLeftAndUpRightToCenter,
 } from "@fortawesome/free-solid-svg-icons";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { AdminModal } from "@/components/admin/AdminModal";
 import { formatBytes } from "@/lib/format";
 import {
   CdnTextEditor,
+  TextPreview,
   isEditableTextFile,
+  useEditorLayout,
 } from "@/components/admin/cdn/CdnTextEditor";
+import {
+  FileMenu,
+  anchorFromElement,
+  type FileMenuItem,
+  type MenuAnchor,
+} from "@/components/FileMenu";
+import { isOdtFile } from "@/lib/text-files";
+import type { OdtDocument } from "@/lib/odt";
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
 interface CdnFileItem {
@@ -131,16 +150,22 @@ function FileTypeIcon({
   const { t, dateLocale } = useI18n();
 
   if (mimeType.startsWith("image/"))
-    return <Icon icon={faImage} className={`text-blue-400 ${className}`} />;
+    return <Icon icon={faImage} className={`text-blue-500 ${className}`} />;
   if (mimeType.startsWith("video/"))
-    return <Icon icon={faFilm} className={`text-purple-400 ${className}`} />;
+    return <Icon icon={faFilm} className={`text-media ${className}`} />;
   if (mimeType.startsWith("audio/"))
-    return <Icon icon={faMusic} className={`text-emerald-400 ${className}`} />;
-  return <Icon icon={faFile} className={`text-orange-400 ${className}`} />;
+    return <Icon icon={faMusic} className={`text-emerald-500 ${className}`} />;
+  return <Icon icon={faFile} className={`text-ink-dim ${className}`} />;
 }
 
 /* ─── File thumbnail ──────────────────────────────────────────────────────── */
-function FileThumbnail({ file }: { file: CdnFileItem }) {
+function FileThumbnail({
+  file,
+  small = false,
+}: {
+  file: CdnFileItem;
+  small?: boolean;
+}) {
   const { t, dateLocale } = useI18n();
 
   if (file.mimeType.startsWith("image/")) {
@@ -155,7 +180,10 @@ function FileThumbnail({ file }: { file: CdnFileItem }) {
   }
   return (
     <div className="flex h-full w-full items-center justify-center">
-      <FileTypeIcon mimeType={file.mimeType} className="text-3xl opacity-50" />
+      <FileTypeIcon
+        mimeType={file.mimeType}
+        className={small ? "text-[15px]" : "text-5xl opacity-25"}
+      />
     </div>
   );
 }
@@ -173,8 +201,70 @@ export default function CdnPage() {
     setMoveSelectFile(file);
     setMoveDestination(file.folder);
   }
-  const [activeFolder, setActiveFolder] = useState<string>("all");
+  // The active folder lives in the URL so the shell rail can link to folders.
+  const router = useRouter(),
+    params = useSearchParams();
+  const activeFolder = params.get("folder") || "all",
+    owner = params.get("owner"),
+    scope = (params.get("scope") as "mine" | "shared" | null) || "all";
+  // Folder, scope and the admin's "browse a member" owner share the URL.
+  const navigate = useCallback(
+    (next: { folder?: string; scope?: string; owner?: string | null }) => {
+      const query = new URLSearchParams();
+      const folder = next.folder ?? activeFolder,
+        nextOwner = next.owner === undefined ? owner : next.owner,
+        nextScope = next.scope ?? scope;
+      if (folder !== "all") query.set("folder", folder);
+      if (nextOwner) query.set("owner", nextOwner);
+      else if (nextScope !== "all") query.set("scope", nextScope);
+      const text = query.toString();
+      router.replace(text ? `/?${text}` : "/", { scroll: false });
+    },
+    [router, activeFolder, owner, scope],
+  );
+  const setActiveFolder = useCallback(
+    (slug: string) => navigate({ folder: slug }),
+    [navigate],
+  );
+  const { data: ownerData } = useSWR(owner ? "/api/admin/members" : null, fetcher);
+  const ownerMember = ownerData?.data?.find(
+    (member: { _id: string }) => member._id === owner,
+  ) as { name: string; email: string } | undefined;
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [newMenuOpen, setNewMenuOpen] = useState(false);
+  const newMenuRef = useRef<HTMLDivElement>(null);
+  const [searchSlot, setSearchSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setSearchSlot(document.getElementById("shell-search"));
+    try {
+      setPanelCollapsed(localStorage.getItem("drive-panel") === "collapsed");
+      const saved = localStorage.getItem("drive-view");
+      if (saved === "grid" || saved === "list" || saved === "details")
+        setViewMode(saved);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!newMenuRef.current?.contains(event.target as Node))
+        setNewMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [newMenuOpen]);
+  const togglePanel = (collapsed: boolean) => {
+    setPanelCollapsed(collapsed);
+    try {
+      localStorage.setItem("drive-panel", collapsed ? "collapsed" : "open");
+    } catch {}
+  };
+  const changeView = (mode: ViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem("drive-view", mode);
+    } catch {}
+  };
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortField>("date-desc");
 
@@ -248,11 +338,20 @@ export default function CdnPage() {
   const [textContent, setTextContent] = useState("");
   const [textContentLoading, setTextContentLoading] = useState(false);
   const [textContentSaving, setTextContentSaving] = useState(false);
+  const [textNotice, setTextNotice] = useState<string | null>(null);
+  const [editorLayout] = useEditorLayout();
+  const [editorFull, setEditorFull] = useState(false);
+  const [textReadOnly, setTextReadOnly] = useState(false);
+  const odtDocument = useRef<OdtDocument | null>(null);
+  // Read-only text shown by the preview modal.
+  const [previewText, setPreviewText] = useState<string | null>(null);
 
   const buildUrl = () => {
     let url = `/api/admin/cdn/files?`;
     if (activeFolder !== "all") url += `folder=${activeFolder}&`;
     if (search.trim()) url += `search=${encodeURIComponent(search.trim())}&`;
+    if (owner) url += `owner=${encodeURIComponent(owner)}&`;
+    else if (scope !== "all") url += `scope=${scope}&`;
     return url;
   };
 
@@ -310,6 +409,13 @@ export default function CdnPage() {
     data: ShareToken[];
   }>(shareFile ? `/api/admin/cdn/files/${shareFile._id}/share` : null, fetcher);
   const shareTokens: ShareToken[] = shareData?.data ?? [];
+
+  useEffect(() => {
+    if (params.get("new") !== "folder") return;
+    setFolderCreateOpen(true);
+    setFolderCreateError(null);
+    setActiveFolder(activeFolder);
+  }, [params, activeFolder, setActiveFolder]);
 
   /* ── Upload ─────────────────────────────────────────────────────────────── */
   const handleFileDrop = useCallback((e: React.DragEvent) => {
@@ -458,6 +564,17 @@ export default function CdnPage() {
     }
   };
 
+  const setFileVisibility = async (visibility: "private" | "members") => {
+    if (!accessFile) return;
+    setAccessIsPublic(visibility === "members");
+    await request(`/api/admin/cdn/files/${accessFile._id}/access`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility }),
+    });
+    mutate();
+  };
+
   const handleAccessRevoke = async (userId: string) => {
     if (!accessFile) return;
     await request(`/api/admin/cdn/files/${accessFile._id}/access`, {
@@ -515,27 +632,65 @@ export default function CdnPage() {
   };
 
   /* ── Text file editor ───────────────────────────────────────────────────── */
+  // OpenDocument files arrive as base64 and are edited as Markdown.
+  const loadText = async (file: CdnFileItem) => {
+    const res = await request(`/api/admin/cdn/files/${file._id}/content`);
+    const json = await res.json();
+    if (!json.success) return null;
+    if (json.encoding !== "base64") return { text: json.content as string };
+    const { readOdt, base64ToBytes } = await import("@/lib/odt");
+    const doc = readOdt(base64ToBytes(json.content));
+    return { text: doc.markdown, odt: doc };
+  };
+
   const openTextEditor = async (file: CdnFileItem) => {
     setEditTextFile(file);
+    setEditorFull(false);
     setTextContentLoading(true);
     setTextContent("");
+    setTextReadOnly(false);
+    odtDocument.current = null;
+    setTextNotice(
+      isOdtFile(file.name, file.mimeType)
+        ? "OpenDocument files are edited as Markdown: headings, lists, bold, italic and links are kept."
+        : null,
+    );
     try {
-      const res = await request(`/api/admin/cdn/files/${file._id}/content`);
-      const json = await res.json();
-      if (json.success) setTextContent(json.content);
+      const loaded = await loadText(file);
+      if (loaded) {
+        setTextContent(loaded.text);
+        odtDocument.current = loaded.odt ?? null;
+        if (loaded.odt?.readOnly) {
+          setTextReadOnly(true);
+          setTextNotice(loaded.odt.readOnly);
+        }
+      }
+    } catch {
+      window.dispatchEvent(
+        new CustomEvent("drive-error", { detail: "Invalid OpenDocument file" }),
+      );
+      setEditTextFile(null);
     } finally {
       setTextContentLoading(false);
     }
   };
 
   const handleSaveTextContent = async () => {
-    if (!editTextFile) return;
+    if (!editTextFile || textReadOnly) return;
     setTextContentSaving(true);
     try {
+      let body: Record<string, string> = { content: textContent };
+      if (odtDocument.current) {
+        const { writeOdt, bytesToBase64 } = await import("@/lib/odt");
+        body = {
+          content: bytesToBase64(writeOdt(odtDocument.current, textContent)),
+          encoding: "base64",
+        };
+      }
       await request(`/api/admin/cdn/files/${editTextFile._id}/content`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: textContent }),
+        body: JSON.stringify(body),
       });
       mutate();
       setEditTextFile(null);
@@ -543,6 +698,20 @@ export default function CdnPage() {
       setTextContentSaving(false);
     }
   };
+
+  useEffect(() => {
+    setPreviewText(null);
+    if (!previewFile || !isEditableTextFile(previewFile.name, previewFile.mimeType))
+      return;
+    let alive = true;
+    loadText(previewFile)
+      .then((loaded) => alive && setPreviewText(loaded?.text ?? null))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewFile]);
 
   /* ── Drag & drop helpers ────────────────────────────────────────────────── */
   const handleFileDragStart = useCallback(
@@ -627,7 +796,7 @@ export default function CdnPage() {
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
   return (
-    <div className="drive-page page-wrap flex min-w-0 flex-col gap-5">
+    <div className="min-w-0 lg:pb-4">
       {folderAccess && (
         <FolderAccess
           slug={folderAccess.slug}
@@ -645,7 +814,7 @@ export default function CdnPage() {
         size="md"
       >
         <div className="space-y-4">
-          <p className="break-all text-sm text-white/60">
+          <p className="break-all text-sm text-ink-dim">
             {moveSelectFile?.name}
           </p>
           <label className="field-label">
@@ -691,217 +860,336 @@ export default function CdnPage() {
           </button>
         </div>
       </AdminModal>
-      {/* Header */}
-      <div className="drive-header flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Icon icon={faHardDrive} className="text-2xl text-orange-400" />
-          <div>
-            <h1 className="text-xl font-bold">ErvisioDrive</h1>
-            <p className="text-xs text-white/50">
-              {folderCounts.all} {t(folderCounts.all === 1 ? "file" : "files")}{" "}
-              {t("total")}
-            </p>
-          </div>
-        </div>
-        <div className="drive-tools flex w-full min-w-0 flex-wrap items-center gap-2 xl:w-auto">
-          {/* Search */}
-          <div className="drive-search relative min-w-0 flex-1 basis-full sm:basis-auto">
-            <Icon
-              icon={faSearch}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-xs"
-            />
+      {/* Search lives in the shell header */}
+      {searchSlot &&
+        createPortal(
+          <label className="search-pill drive-search w-full">
+            <Icon icon={faSearch} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("Search files…")}
-              className="h-11 w-full rounded-lg border border-white/[0.04] bg-white/5 pl-9 pr-3 text-base sm:text-sm outline-none focus:border-orange-500/30 sm:min-w-48"
+              aria-label={t("Search files…")}
             />
-          </div>
-          {/* Guida link */}
-          <Link
-            href="/docs"
-            className="flex h-9 items-center gap-2 rounded-lg border border-white/[0.04] bg-white/5 px-3 text-xs font-medium text-white/50 hover:text-white transition-colors"
-          >
-            <Icon icon={faBook} />
-            {t("Guide")}
-          </Link>
-          {/* Sort selector */}
-          <div className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 pl-2.5 pr-1 h-9">
-            <Icon icon={faSort} className="text-xs text-white/30 shrink-0" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortField)}
-              className="bg-transparent text-xs text-white/70 outline-none cursor-pointer pr-1"
-            >
-              {SORT_OPTIONS.map((o) => (
-                <option
-                  key={o.value}
-                  value={o.value}
-                  className="bg-[#16161f] text-white"
-                >
-                  {t(o.label)}
-                </option>
-              ))}
-            </select>
-          </div>
-          {/* View toggle */}
-          <div className="flex overflow-hidden rounded-lg border border-white/[0.04]">
-            <button
-              onClick={() => setViewMode("grid")}
-              className={`flex h-9 w-9 items-center justify-center text-sm transition-colors ${
-                viewMode === "grid"
-                  ? "bg-white/15 text-white"
-                  : "bg-white/5 text-white/40 hover:text-white"
-              }`}
-              title={t("Grid view")}
-            >
-              <Icon icon={faTableCells} />
-            </button>
-            <button
-              onClick={() => setViewMode("list")}
-              className={`flex h-9 w-9 items-center justify-center text-sm transition-colors ${
-                viewMode === "list"
-                  ? "bg-white/15 text-white"
-                  : "bg-white/5 text-white/40 hover:text-white"
-              }`}
-              title={t("List view")}
-            >
-              <Icon icon={faList} />
-            </button>
-            <button
-              onClick={() => setViewMode("details")}
-              className={`flex h-9 w-9 items-center justify-center text-sm transition-colors ${
-                viewMode === "details"
-                  ? "bg-white/15 text-white"
-                  : "bg-white/5 text-white/40 hover:text-white"
-              }`}
-              title={t("Details view")}
-            >
-              <Icon icon={faCircleInfo} />
-            </button>
-          </div>
-          {/* Upload */}
-          <button
-            onClick={() => setUploadOpen(true)}
-            className="flex h-9 items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 transition-colors"
-          >
-            <Icon icon={faUpload} />
-            {t("Upload")}
-          </button>
-        </div>
-      </div>
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                aria-label={t("Clear search")}
+                className="icon-button -mr-2 h-9 w-9"
+              >
+                <Icon icon={faXmark} />
+              </button>
+            )}
+          </label>,
+          searchSlot,
+        )}
 
-      {/* Folder tabs */}
-      <div className="folder-strip flex min-w-0 gap-2 overflow-x-auto pb-2">
-        {BUILTIN_FOLDERS.map((tab) => (
-          <button
-            key={tab.slug}
-            onClick={() => setActiveFolder(tab.slug)}
-            onDragOver={(e) => handleFolderDragOver(e, tab.slug)}
-            onDragLeave={handleFolderDragLeave}
-            onDrop={(e) => handleFolderDrop(e, tab.slug, tab.label)}
-            className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors
-              ${
-                activeFolder === tab.slug
-                  ? "bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/40"
-                  : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
-              }
-              ${dragOverFolder === tab.slug && draggingFile ? "ring-2 ring-orange-400 bg-orange-500/20 text-orange-400" : ""}
-            `}
-          >
-            <Icon icon={tab.icon} />
-            {t(tab.label)}
-            <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] leading-none">
-              {folderCounts[tab.slug] ?? 0}
-            </span>
-          </button>
-        ))}
-
-        {/* Custom folders */}
-        {customFolders.map((cf) => (
-          <div
-            key={cf.slug}
-            className="group relative flex shrink-0 items-center"
-          >
-            <button
-              onClick={() => setActiveFolder(cf.slug)}
-              onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
-              onDragLeave={handleFolderDragLeave}
-              onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
-              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors
-                ${
-                  activeFolder === cf.slug
-                    ? "bg-orange-500/20 text-orange-400 ring-1 ring-orange-500/40"
-                    : "bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
-                }
-                ${dragOverFolder === cf.slug && draggingFile ? "ring-2 ring-orange-400 bg-orange-500/20 text-orange-400" : ""}
-              `}
-            >
-              <Icon icon={faFolderOpen} />
-              {cf.name}
-              {cf.allowedUsers.length > 0 && (
-                <Icon icon={faLock} className="text-[9px] opacity-60" />
+      <div className={`drive-layout ${panelCollapsed ? "panel-collapsed" : ""}`}>
+        {/* Folder panel (collapsible) */}
+        <aside className="drive-panel" aria-label={t("Folders")}>
+          <div className="drive-panel-inner">
+            <div className="flex h-12 items-center justify-between pl-3 pr-1">
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold">{t("My drive")}</p>
+                <p className="text-xs text-ink-faint">
+                  {folderCounts.all ?? 0}{" "}
+                  {t((folderCounts.all ?? 0) === 1 ? "file" : "files")}{" "}
+                  {t("total")}
+                </p>
+              </div>
+              <button
+                onClick={() => togglePanel(true)}
+                aria-label={t("Collapse folders")}
+                title={t("Collapse folders")}
+                className="icon-button"
+              >
+                <Icon icon={faAnglesLeft} />
+              </button>
+            </div>
+            <div className="relative my-2 ml-1" ref={newMenuRef}>
+              <button
+                className="new-button"
+                onClick={() => setNewMenuOpen((open) => !open)}
+                aria-expanded={newMenuOpen}
+              >
+                <Icon icon={faPlus} />
+                {t("New")}
+              </button>
+              {newMenuOpen && (
+                <div className="menu-popover left-0 top-[60px]">
+                  <button
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      setUploadOpen(true);
+                    }}
+                  >
+                    <Icon icon={faUpload} className="w-4 text-ink-dim" />
+                    {t("Upload files")}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setNewMenuOpen(false);
+                      setFolderCreateOpen(true);
+                      setFolderCreateError(null);
+                    }}
+                  >
+                    <Icon icon={faFolderPlus} className="w-4 text-ink-dim" />
+                    {t("New folder")}
+                  </button>
+                </div>
               )}
-              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] leading-none">
-                {folderCounts[cf.slug] ?? 0}
-              </span>
-            </button>
-            <button
-              onClick={() => setFolderAccess(cf)}
-              title={t("Manage folder access")}
-              className="ml-1 p-1 text-xs text-white/30 hover:text-orange-400"
-            >
-              <Icon icon={faUsers} />
-            </button>
-            {/* Delete custom folder */}
-            <button
-              onClick={() => setFolderDeleteTarget(cf)}
-              className="ml-0.5 flex h-11 w-11 items-center justify-center rounded text-rose-400/50 hover:bg-rose-500/[0.06] hover:text-rose-400 group-hover:flex transition-colors"
-              title={t("Delete folder")}
-            >
-              <Icon icon={faXmark} className="text-[10px]" />
-            </button>
-          </div>
-        ))}
-
-        {/* Create folder button */}
-        <button
-          onClick={() => {
-            setFolderCreateOpen(true);
-            setFolderCreateError(null);
-          }}
-          className="flex items-center gap-1.5 rounded-lg border border-dashed border-white/20 px-3 py-1.5 text-xs font-medium text-white/30 hover:border-orange-500/40 hover:text-orange-400 transition-colors"
-        >
-          <Icon icon={faFolderPlus} />
-          {t("New folder")}
-        </button>
-      </div>
-
-      {/* Breadcrumb — shown when inside a custom folder */}
-      {(() => {
-        const currentCf = customFolders.find((cf) => cf.slug === activeFolder);
-        return currentCf ? (
-          <div className="flex items-center gap-3 rounded-xl border border-white/[0.04] bg-white/5 px-4 py-2.5">
-            <button
-              onClick={() => setActiveFolder("all")}
-              className="flex items-center gap-1.5 text-sm text-white/50 hover:text-white transition-colors"
-            >
-              <Icon icon={faArrowLeft} className="text-xs" />
-              {t("Go back")}
-            </button>
-            <span className="text-white/20">/</span>
-            <div className="flex items-center gap-2 text-sm">
-              <Icon icon={faFolderOpen} className="text-orange-400" />
-              <span className="font-medium text-white">{currentCf.name}</span>
-              {currentCf.description && (
-                <span className="text-xs text-white/30">
-                  — {currentCf.description}
-                </span>
+            </div>
+            <nav className="mt-1 space-y-0.5">
+              {BUILTIN_FOLDERS.map((tab) => (
+                <button
+                  key={tab.slug}
+                  onClick={() => setActiveFolder(tab.slug)}
+                  onDragOver={(e) => handleFolderDragOver(e, tab.slug)}
+                  onDragLeave={handleFolderDragLeave}
+                  onDrop={(e) => handleFolderDrop(e, tab.slug, tab.label)}
+                  aria-current={activeFolder === tab.slug ? "true" : undefined}
+                  className={`panel-item ${activeFolder === tab.slug ? "active" : ""} ${dragOverFolder === tab.slug && draggingFile ? "drop" : ""}`}
+                >
+                  <Icon icon={tab.icon} />
+                  <span className="truncate">{t(tab.label)}</span>
+                  <em>{folderCounts[tab.slug] ?? 0}</em>
+                </button>
+              ))}
+            </nav>
+            <div className="mt-4 flex h-9 items-center justify-between pl-3.5 pr-1 text-[13px] font-semibold text-ink-dim">
+              {t("Folders")}
+              <button
+                onClick={() => {
+                  setFolderCreateOpen(true);
+                  setFolderCreateError(null);
+                }}
+                aria-label={t("New folder")}
+                title={t("New folder")}
+                className="icon-button h-8 w-8 text-[13px]"
+              >
+                <Icon icon={faFolderPlus} />
+              </button>
+            </div>
+            <div className="space-y-0.5">
+              {customFolders.map((cf) => (
+                <div key={cf.slug} className="group relative">
+                  <button
+                    onClick={() => setActiveFolder(cf.slug)}
+                    onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
+                    onDragLeave={handleFolderDragLeave}
+                    onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
+                    aria-current={activeFolder === cf.slug ? "true" : undefined}
+                    className={`panel-item pr-20 ${activeFolder === cf.slug ? "active" : ""} ${dragOverFolder === cf.slug && draggingFile ? "drop" : ""}`}
+                  >
+                    <Icon icon={cf.allowedUsers.length > 0 ? faLock : faFolder} />
+                    <span className="truncate">{cf.name}</span>
+                  </button>
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-faint group-focus-within:opacity-0 group-hover:opacity-0">
+                    {folderCounts[cf.slug] ?? 0}
+                  </span>
+                  <div className="absolute right-1 top-1/2 flex -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                    <button
+                      onClick={() => setFolderAccess(cf)}
+                      title={t("Manage folder access")}
+                      aria-label={t("Manage folder access")}
+                      className="icon-button h-8 w-8 text-xs"
+                    >
+                      <Icon icon={faUsers} />
+                    </button>
+                    <button
+                      onClick={() => setFolderDeleteTarget(cf)}
+                      title={t("Delete folder")}
+                      aria-label={t("Delete folder")}
+                      className="icon-button h-8 w-8 text-xs hover:text-rose-500"
+                    >
+                      <Icon icon={faTrash} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {customFolders.length === 0 && (
+                <p className="px-3.5 py-2 text-xs text-ink-faint">{t("No folders")}</p>
               )}
             </div>
           </div>
-        ) : null;
-      })()}
+        </aside>
+
+        <section className="drive-sheet drive-page flex min-w-0 flex-col gap-4">
+          {/* Title row */}
+          <div className="flex min-h-12 flex-wrap items-center gap-x-2 gap-y-2">
+            {panelCollapsed && (
+              <button
+                onClick={() => togglePanel(false)}
+                aria-label={t("Show folders")}
+                title={t("Show folders")}
+                className="icon-button hidden lg:grid"
+              >
+                <Icon icon={faAnglesRight} />
+              </button>
+            )}
+            {(() => {
+              const currentCf = customFolders.find((cf) => cf.slug === activeFolder);
+              const builtin = BUILTIN_FOLDERS.find((f) => f.slug === activeFolder);
+              return (
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {currentCf && (
+                      <button
+                        onClick={() => setActiveFolder("all")}
+                        aria-label={t("Go back")}
+                        title={t("Go back")}
+                        className="icon-button -ml-2"
+                      >
+                        <Icon icon={faArrowLeft} />
+                      </button>
+                    )}
+                    <h1 className="truncate text-[22px] font-medium tracking-tight">
+                      {currentCf
+                        ? currentCf.name
+                        : builtin && builtin.slug !== "all"
+                          ? t(builtin.label)
+                          : t("My drive")}
+                    </h1>
+                    {currentCf && currentCf.allowedUsers.length > 0 && (
+                      <Icon icon={faLock} className="text-xs text-ink-faint" />
+                    )}
+                  </div>
+                  {currentCf?.description && (
+                    <p className="truncate text-sm text-ink-faint">{currentCf.description}</p>
+                  )}
+                </div>
+              );
+            })()}
+            <div className="drive-tools flex items-center gap-2">
+              <label className="flex h-9 items-center gap-2 rounded-full px-3 text-[13px] text-ink-dim hover:bg-white/5">
+                <Icon icon={faSort} className="text-xs" />
+                <span className="sr-only">{t("Sort")}</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortField)}
+                  aria-label={t("Sort")}
+                  className="cursor-pointer bg-transparent font-medium outline-none"
+                >
+                  {SORT_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {t(o.label)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="view-toggle" role="group" aria-label={t("View")}>
+                {(
+                  [
+                    ["list", faList, "List view"],
+                    ["grid", faTableCellsLarge, "Grid view"],
+                    ["details", faCircleInfo, "Details view"],
+                  ] as const
+                ).map(([mode, icon, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => changeView(mode)}
+                    aria-pressed={viewMode === mode}
+                    aria-label={t(label)}
+                    title={t(label)}
+                  >
+                    {viewMode === mode && <Icon icon={faCheck} className="text-[11px]" />}
+                    <Icon icon={icon} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {owner ? (
+            <div className="owner-banner" role="status">
+              <Icon icon={faEye} />
+              <span className="min-w-0 flex-1">
+                {t("You are viewing the space of {name}", {
+                  name: ownerMember?.name || ownerMember?.email || "…",
+                })}
+              </span>
+              <button
+                className="secondary-button"
+                onClick={() => navigate({ folder: "all", owner: null, scope: "all" })}
+              >
+                {t("Back to my drive")}
+              </button>
+            </div>
+          ) : (
+            <div className="scope-filter" role="group" aria-label={t("Show")}>
+              {(
+                [
+                  ["all", "All"],
+                  ["mine", "Mine"],
+                  ["shared", "Shared with me"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  aria-pressed={scope === value}
+                  onClick={() => navigate({ scope: value })}
+                >
+                  {value === "shared" && <Icon icon={faUsers} />}
+                  {t(label)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Folder chips on small screens (the panel is hidden there) */}
+          <div className="folder-strip -mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1 lg:hidden">
+            {BUILTIN_FOLDERS.map((tab) => (
+              <button
+                key={tab.slug}
+                onClick={() => setActiveFolder(tab.slug)}
+                className={`chip h-10 ${activeFolder === tab.slug ? "active" : ""}`}
+              >
+                {activeFolder === tab.slug && <Icon icon={faCheck} className="text-[11px]" />}
+                {t(tab.label)}
+                <span className="text-xs opacity-75">{folderCounts[tab.slug] ?? 0}</span>
+              </button>
+            ))}
+            {customFolders.map((cf) => (
+              <button
+                key={cf.slug}
+                onClick={() => setActiveFolder(cf.slug)}
+                className={`chip h-10 ${activeFolder === cf.slug ? "active" : ""}`}
+              >
+                <Icon icon={cf.allowedUsers.length > 0 ? faLock : faFolder} className="text-[11px]" />
+                {cf.name}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                setFolderCreateOpen(true);
+                setFolderCreateError(null);
+              }}
+              className="chip h-10 border-dashed"
+            >
+              <Icon icon={faFolderPlus} />
+              {t("New folder")}
+            </button>
+          </div>
+          {(() => {
+            const currentCf = customFolders.find((cf) => cf.slug === activeFolder);
+            return currentCf ? (
+              <div className="flex flex-wrap gap-2 lg:hidden">
+                <button onClick={() => setFolderAccess(currentCf)} className="secondary-button min-h-10 px-4">
+                  <Icon icon={faUsers} /> {t("Manage folder access")}
+                </button>
+                <button onClick={() => setFolderDeleteTarget(currentCf)} className="danger-button min-h-10 px-4">
+                  <Icon icon={faTrash} /> {t("Delete folder")}
+                </button>
+              </div>
+            ) : null;
+          })()}
+          <button
+            className="drive-fab"
+            onClick={() => setUploadOpen(true)}
+            aria-label={t("Upload")}
+          >
+            <Icon icon={faPlus} />
+          </button>
 
       {loadError && (
         <p role="alert" className="text-sm text-rose-400">
@@ -910,14 +1198,14 @@ export default function CdnPage() {
       )}
       {/* File grid / list / details */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-24 text-white/30">
+        <div className="flex items-center justify-center py-24 text-ink-faint">
           <Icon icon={faRotateRight} className="animate-spin text-2xl" />
         </div>
       ) : viewMode === "details" ? (
         /* ── Details mode (master-detail) ────────────────────────────── */
         <div className="flex min-w-0 flex-col gap-4 lg:min-h-[400px] lg:flex-row">
           {/* Left: compact file list */}
-          <div className="max-h-56 w-full shrink-0 overflow-y-auto rounded-xl lg:max-h-[70dvh] lg:w-72 border border-white/[0.04] bg-[#111118]">
+          <div className="max-h-56 w-full shrink-0 overflow-y-auto rounded-card lg:max-h-[70dvh] lg:w-72 bg-surface-2">
             {/* Folder items when in "all" view */}
             {activeFolder === "all" &&
               customFolders.map((cf) => (
@@ -931,17 +1219,17 @@ export default function CdnPage() {
                     className="shrink-0 text-orange-400/70"
                   />
                   <div className="min-w-0 flex-1 text-left">
-                    <p className="truncate text-xs font-medium text-white/70">
+                    <p className="truncate text-xs font-medium text-ink">
                       {cf.name}
                     </p>
-                    <p className="text-[10px] text-white/30">
+                    <p className="text-[10px] text-ink-faint">
                       {folderCounts[cf.slug] ?? 0} {t("files")}
                     </p>
                   </div>
                 </button>
               ))}
             {files.length === 0 && (
-              <p className="px-4 py-6 text-center text-xs text-white/30">
+              <p className="px-4 py-6 text-center text-xs text-ink-faint">
                 {activeFolder === "all" && customFolders.length === 0
                   ? t("No files")
                   : t("Empty folder")}
@@ -961,10 +1249,10 @@ export default function CdnPage() {
                   <FileThumbnail file={file} />
                 </div>
                 <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate text-xs font-medium text-white/80">
+                  <p className="truncate text-xs font-medium text-ink">
                     {file.name}
                   </p>
-                  <p className="text-[10px] text-white/30">
+                  <p className="text-[10px] text-ink-faint">
                     {formatBytes(file.size)}
                   </p>
                 </div>
@@ -992,7 +1280,7 @@ export default function CdnPage() {
                 }
               />
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-white/[0.04] bg-[#111118] text-white/20">
+              <div className="flex h-full flex-col items-center justify-center gap-2 rounded-card bg-surface-2 text-ink-faint">
                 <Icon icon={faCircleInfo} className="text-4xl" />
                 <p className="text-sm">
                   {t("Select a file to view its details")}
@@ -1003,7 +1291,7 @@ export default function CdnPage() {
         </div>
       ) : files.length === 0 &&
         !(activeFolder === "all" && customFolders.length > 0) ? (
-        <div className="flex flex-col items-center justify-center py-24 text-white/30">
+        <div className="flex flex-col items-center justify-center py-24 text-ink-faint">
           <Icon icon={faHardDrive} className="mb-3 text-5xl" />
           <p className="text-sm">{t("No files found")}</p>
         </div>
@@ -1013,10 +1301,8 @@ export default function CdnPage() {
           {/* Folder cards (only in "all" view) */}
           {activeFolder === "all" && customFolders.length > 0 && (
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/30">
-                {t("Folders")}
-              </p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+              <h2 className="mb-3 text-sm font-semibold">{t("Folders")}</h2>
+              <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {customFolders.map((cf) => (
                   <FolderCard
                     key={cf.slug}
@@ -1033,7 +1319,9 @@ export default function CdnPage() {
             </div>
           )}
           {sortedFiles.length > 0 && (
-            <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+            <div>
+            <h2 className="mb-3 text-sm font-semibold">{t("Files")}</h2>
+            <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {sortedFiles.map((file) => (
                 <GridCard
                   key={file._id}
@@ -1058,6 +1346,7 @@ export default function CdnPage() {
                 />
               ))}
             </div>
+            </div>
           )}
         </div>
       ) : (
@@ -1065,39 +1354,39 @@ export default function CdnPage() {
         <div className="space-y-3 overflow-y-auto">
           {/* Folder rows (only in "all" view) */}
           {activeFolder === "all" && customFolders.length > 0 && (
-            <div className="overflow-hidden rounded-xl border border-white/[0.04]">
+            <div>
               <table className="drive-table w-full text-sm">
                 <tbody>
                   {customFolders.map((cf) => (
                     <tr
                       key={cf.slug}
                       onClick={() => setActiveFolder(cf.slug)}
-                      className="cursor-pointer border-b border-white/5 hover:bg-white/5 transition-colors"
+                      className="cursor-pointer transition-colors hover:bg-surface-2"
                     >
-                      <td className="px-4 py-3" colSpan={5}>
+                      <td className="h-[52px] px-3" colSpan={5}>
                         <div className="flex items-center gap-3">
                           <Icon
-                            icon={faFolderOpen}
-                            className="text-orange-400/70"
+                            icon={cf.allowedUsers.length > 0 ? faLock : faFolder}
+                            className="w-6 text-[15px] text-ink-dim"
                           />
-                          <span className="font-medium text-white/80">
+                          <span className="font-medium text-ink">
                             {cf.name}
                           </span>
                           {cf.description && (
-                            <span className="text-xs text-white/30">
+                            <span className="text-xs text-ink-faint">
                               — {cf.description}
                             </span>
                           )}
                           {cf.allowedUsers.length > 0 && (
                             <Icon
                               icon={faLock}
-                              className="text-[10px] text-white/30"
+                              className="text-[10px] text-ink-faint"
                             />
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-xs text-white/30">
+                      <td className="px-3 text-right">
+                        <span className="text-xs text-ink-faint">
                           {folderCounts[cf.slug] ?? 0} {t("files")}
                         </span>
                       </td>
@@ -1108,16 +1397,18 @@ export default function CdnPage() {
             </div>
           )}
           {sortedFiles.length > 0 && (
-            <div className="overflow-auto rounded-xl border border-white/[0.04]">
+            <div className="overflow-auto">
               <table className="drive-table w-full text-sm">
                 <thead>
-                  <tr className="border-b border-white/[0.04] text-left text-xs text-white/40">
-                    <th className="px-4 py-3">File</th>
-                    <th className="px-4 py-3">{t("Folder")}</th>
-                    <th className="px-4 py-3">{t("Size")}</th>
-                    <th className="px-4 py-3">{t("Uploaded by")}</th>
-                    <th className="px-4 py-3">{t("Date")}</th>
-                    <th className="px-4 py-3 text-right">{t("Actions")}</th>
+                  <tr className="text-left">
+                    <th className="px-3">{t("Name")}</th>
+                    <th className="px-3">{t("Folder")}</th>
+                    <th className="px-3">{t("Uploaded by")}</th>
+                    <th className="px-3">{t("Date")}</th>
+                    <th className="px-3">{t("Size")}</th>
+                    <th className="px-3 text-right">
+                      <span className="sr-only">{t("Actions")}</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1151,6 +1442,9 @@ export default function CdnPage() {
         </div>
       )}
 
+        </section>
+      </div>
+
       {/* ── Upload Modal ─────────────────────────────────────────────────── */}
       <AdminModal
         open={uploadOpen}
@@ -1171,10 +1465,10 @@ export default function CdnPage() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleFileDrop}
             onClick={() => fileInputRef.current?.click()}
-            className="cursor-pointer rounded-xl border-2 border-dashed border-white/20 bg-white/5 p-8 text-center hover:border-orange-500/50 hover:bg-orange-500/5 transition-colors"
+            className="cursor-pointer rounded-card border-2 border-dashed border-white/20 bg-white/5 p-8 text-center hover:border-orange-500/50 hover:bg-white/900/5 transition-colors"
           >
-            <Icon icon={faUpload} className="mb-2 text-3xl text-white/30" />
-            <p className="text-sm text-white/50">
+            <Icon icon={faUpload} className="mb-2 text-3xl text-ink-faint" />
+            <p className="text-sm text-ink-dim">
               {t("Drop files here or")}{" "}
               <span className="text-orange-400">{t("select files")}</span>
             </p>
@@ -1205,10 +1499,10 @@ export default function CdnPage() {
                         mimeType={f.type}
                         className="flex-shrink-0"
                       />
-                      <span className="truncate text-xs text-white/70">
+                      <span className="truncate text-xs text-ink">
                         {f.name}
                       </span>
-                      <span className="flex-shrink-0 text-xs text-white/30">
+                      <span className="flex-shrink-0 text-xs text-ink-faint">
                         {formatBytes(f.size)}
                       </span>
                     </div>
@@ -1227,7 +1521,7 @@ export default function CdnPage() {
                           e.stopPropagation();
                           setUploadQueue((q) => q.filter((_, j) => j !== i));
                         }}
-                        className="text-white/30 hover:text-rose-400 transition-colors"
+                        className="text-ink-faint hover:text-rose-400 transition-colors"
                       >
                         <Icon icon={faXmark} className="text-xs" />
                       </button>
@@ -1240,7 +1534,7 @@ export default function CdnPage() {
 
           {/* Options */}
           <div>
-            <label className="mb-1 block text-xs text-white/50">
+            <label className="mb-1 block text-xs text-ink-dim">
               <Icon icon={faClockRotateLeft} className="mr-1" />
               {t("Automatic expiry (seconds, optional)")}
             </label>
@@ -1263,14 +1557,14 @@ export default function CdnPage() {
                   setUploadExpiresIn("");
                 }
               }}
-              className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
+              className="rounded-lg px-4 py-2 text-sm text-ink-dim hover:text-white transition-colors"
             >
               {t("Cancel")}
             </button>
             <button
               onClick={handleUploadSubmit}
               disabled={!uploadQueue.length || uploading}
-              className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-on hover:bg-accent-hover disabled:opacity-50 transition-colors"
             >
               {uploading ? (
                 <Icon icon={faRotateRight} className="animate-spin" />
@@ -1296,7 +1590,7 @@ export default function CdnPage() {
       >
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs text-white/50">
+            <label className="mb-1 block text-xs text-ink-dim">
               {t("New name")}
             </label>
             <input
@@ -1310,13 +1604,13 @@ export default function CdnPage() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setRenameFile(null)}
-              className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
+              className="rounded-lg px-4 py-2 text-sm text-ink-dim hover:text-white transition-colors"
             >
               {t("Cancel")}
             </button>
             <button
               onClick={handleRename}
-              className="rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 transition-colors"
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-on hover:bg-accent-hover transition-colors"
             >
               {t("Save")}
             </button>
@@ -1334,12 +1628,12 @@ export default function CdnPage() {
         {shareFile && (
           <div className="space-y-5">
             {/* Direct link */}
-            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
+            <div className="rounded-card border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wider text-emerald-400/70">
                 {t("Direct link")}
               </p>
               <div className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-black/30 px-3 py-2">
-                <span className="flex-1 truncate font-mono text-xs text-white/50">
+                <span className="flex-1 truncate font-mono text-xs text-ink-dim">
                   {typeof window !== "undefined" ? window.location.origin : ""}
                   {shareFile.url}
                 </span>
@@ -1355,7 +1649,7 @@ export default function CdnPage() {
                   {copiedDirect ? t("Copied!") : t("Copy")}
                 </button>
               </div>
-              <p className="text-[10px] text-white/30">
+              <p className="text-[10px] text-ink-faint">
                 {t("Authenticated URL — requires an authorized account (")}
                 {shareFile.mimeType || "file"}
                 {t("). Respects file permissions and expiry.")}
@@ -1363,13 +1657,13 @@ export default function CdnPage() {
             </div>
 
             {/* Create new token */}
-            <div className="rounded-xl border border-white/[0.04] bg-white/5 p-4 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-white/40">
+            <div className="rounded-card border border-white/[0.04] bg-white/5 p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-ink-faint">
                 {t("New link")}
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
-                  <label className="mb-1 block text-xs text-white/50">
+                  <label className="mb-1 block text-xs text-ink-dim">
                     <Icon icon={faLock} className="mr-1" />
                     {t("Password (optional)")}
                   </label>
@@ -1382,7 +1676,7 @@ export default function CdnPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-white/50">
+                  <label className="mb-1 block text-xs text-ink-dim">
                     <Icon icon={faCalendar} className="mr-1" />
                     {t("Expiry (optional)")}
                   </label>
@@ -1394,7 +1688,7 @@ export default function CdnPage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-white/50">
+                  <label className="mb-1 block text-xs text-ink-dim">
                     <Icon icon={faHashtag} className="mr-1" />
                     {t("Maximum downloads (optional)")}
                   </label>
@@ -1411,7 +1705,7 @@ export default function CdnPage() {
               <button
                 onClick={handleCreateShare}
                 disabled={shareCreating}
-                className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-on hover:bg-accent-hover disabled:opacity-50 transition-colors"
               >
                 <Icon icon={faLink} />
                 {shareCreating ? t("Creating…") : t("Create link")}
@@ -1420,12 +1714,12 @@ export default function CdnPage() {
 
             {/* Token list */}
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-white/40">
+              <p className="text-xs font-semibold uppercase tracking-wider text-ink-faint">
                 {t("Active links (")}
                 {shareTokens.length})
               </p>
               {shareTokens.length === 0 ? (
-                <p className="text-xs text-white/30">{t("No links created")}</p>
+                <p className="text-xs text-ink-faint">{t("No links created")}</p>
               ) : (
                 shareTokens.map((shareToken) => (
                   <div
@@ -1433,11 +1727,11 @@ export default function CdnPage() {
                     className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="truncate font-mono text-xs text-white/60">
+                      <p className="truncate font-mono text-xs text-ink-dim">
                         {window?.location?.origin}/api/download/
                         {shareToken.token}
                       </p>
-                      <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-white/30">
+                      <div className="mt-0.5 flex flex-wrap gap-2 text-[10px] text-ink-faint">
                         {shareToken.expiresAt && (
                           <span>
                             <Icon icon={faCalendar} className="mr-0.5" />
@@ -1461,7 +1755,7 @@ export default function CdnPage() {
                     </div>
                     <button
                       onClick={() => copyToClipboard(shareToken.token)}
-                      className="flex-shrink-0 rounded px-2 py-1 text-xs text-white/50 hover:text-white transition-colors"
+                      className="flex-shrink-0 rounded px-2 py-1 text-xs text-ink-dim hover:text-white transition-colors"
                       title={t("Copy link")}
                     >
                       <Icon
@@ -1514,6 +1808,33 @@ export default function CdnPage() {
               />
             ) : previewFile.mimeType.startsWith("audio/") ? (
               <audio src={previewFile.url} controls className="w-full" />
+            ) : isEditableTextFile(previewFile.name, previewFile.mimeType) ? (
+              previewText === null ? (
+                <div className="flex h-64 items-center justify-center gap-3 text-ink-faint">
+                  <Icon icon={faRotateRight} className="animate-spin" />
+                  <span className="text-sm">{t("Loading file…")}</span>
+                </div>
+              ) : (
+                <div className="flex w-full flex-col gap-3">
+                  <TextPreview
+                    filename={previewFile.name}
+                    content={previewText}
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      className="primary-button"
+                      onClick={() => {
+                        const file = previewFile;
+                        setPreviewFile(null);
+                        openTextEditor(file);
+                      }}
+                    >
+                      <Icon icon={faPen} />
+                      {t("Edit")}
+                    </button>
+                  </div>
+                </div>
+              )
             ) : previewFile.mimeType === "application/pdf" ? (
               <iframe
                 src={previewFile.url}
@@ -1521,7 +1842,7 @@ export default function CdnPage() {
                 className="h-[70vh] w-full rounded-lg border border-white/[0.04]"
               />
             ) : (
-              <div className="flex flex-col items-center gap-3 py-12 text-white/30">
+              <div className="flex flex-col items-center gap-3 py-12 text-ink-faint">
                 <Icon icon={faFile} className="text-5xl" />
                 <p className="text-sm">
                   {t("Preview is not available for this file type")}
@@ -1529,7 +1850,7 @@ export default function CdnPage() {
                 <a
                   href={previewFile.url}
                   download={previewFile.name}
-                  className="mt-2 flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+                  className="mt-2 flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm text-ink hover:bg-white/20 hover:text-white transition-colors"
                 >
                   <Icon icon={faDownload} />
                   {t("Download file")}
@@ -1554,7 +1875,7 @@ export default function CdnPage() {
       >
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs text-white/50">
+            <label className="mb-1 block text-xs text-ink-dim">
               {t("Folder name *")}
             </label>
             <input
@@ -1566,9 +1887,9 @@ export default function CdnPage() {
               className="w-full rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-sm outline-none focus:border-orange-500/30"
             />
             {folderCreateName.trim() && (
-              <p className="mt-1 text-[11px] text-white/30">
+              <p className="mt-1 text-[11px] text-ink-faint">
                 Slug:{" "}
-                <code className="text-white/50">
+                <code className="text-ink-dim">
                   {folderCreateName
                     .toLowerCase()
                     .replace(/[^a-z0-9]+/g, "-")
@@ -1579,7 +1900,7 @@ export default function CdnPage() {
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-white/50">
+            <label className="mb-1 block text-xs text-ink-dim">
               {t("Description (optional)")}
             </label>
             <input
@@ -1595,14 +1916,14 @@ export default function CdnPage() {
           <div className="flex justify-end gap-2">
             <button
               onClick={() => setFolderCreateOpen(false)}
-              className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
+              className="rounded-lg px-4 py-2 text-sm text-ink-dim hover:text-white transition-colors"
             >
               {t("Cancel")}
             </button>
             <button
               onClick={handleFolderCreate}
               disabled={folderCreateLoading || !folderCreateName.trim()}
-              className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-on hover:bg-accent-hover disabled:opacity-50 transition-colors"
             >
               {folderCreateLoading ? (
                 <Icon icon={faRotateRight} className="animate-spin" />
@@ -1628,29 +1949,38 @@ export default function CdnPage() {
       >
         {accessFile && (
           <div className="space-y-5">
-            {/* Status */}
-            <div
-              className={`flex items-center gap-2 rounded-lg p-3 text-sm ${
-                accessIsPublic
-                  ? "bg-emerald-500/10 text-emerald-400"
-                  : "bg-orange-500/10 text-orange-400"
-              }`}
-            >
-              <Icon icon={accessIsPublic ? faUsers : faLock} />
-              {accessIsPublic
-                ? t("Accessible to all authorized users")
-                : t("Restricted file · {count} authorized users", {
-                    count: accessUsers.length,
-                  })}
+            <div role="radiogroup" aria-label={t("Who can open this file")} className="space-y-2">
+              {(
+                [
+                  ["private", faLock, "Private", "You, administrators and the people added below."],
+                  ["members", faUsers, "All members", "Anyone authorized in the drive."],
+                ] as const
+              ).map(([value, icon, label, hint]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={(value === "members") === accessIsPublic}
+                  className="visibility-option"
+                  onClick={() => setFileVisibility(value)}
+                >
+                  <i aria-hidden="true">
+                    <Icon icon={icon} />
+                  </i>
+                  <b>{t(label)}</b>
+                  <span>{t(hint)}</span>
+                </button>
+              ))}
             </div>
 
             {/* Add user */}
             <div>
-              <label className="mb-1 block text-xs text-white/50">
+              <label htmlFor="access-add" className="mb-1 block text-xs text-ink-dim">
                 {t("Add user (authorized email)")}
               </label>
               <div className="flex gap-2">
                 <input
+                  id="access-add"
                   value={accessAddInput}
                   onChange={(e) => setAccessAddInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAccessAdd()}
@@ -1659,8 +1989,9 @@ export default function CdnPage() {
                 />
                 <button
                   onClick={handleAccessAdd}
+                  aria-label={t("Add")}
                   disabled={accessAddLoading || !accessAddInput.trim()}
-                  className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-orange-500 to-amber-500 px-3 py-2 text-sm font-semibold text-white shadow-lg shadow-orange-500/20 hover:from-orange-400 hover:to-amber-400 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-on hover:bg-accent-hover disabled:opacity-50 transition-colors"
                 >
                   {accessAddLoading ? (
                     <Icon icon={faRotateRight} className="animate-spin" />
@@ -1678,13 +2009,13 @@ export default function CdnPage() {
 
             {/* User list */}
             <div className="space-y-1">
-              <p className="text-xs font-semibold uppercase tracking-wider text-white/30">
+              <p className="text-xs font-semibold uppercase tracking-wider text-ink-faint">
                 {t("Authorized users (")}
                 {accessUsers.length})
               </p>
               {accessUsers.length === 0 ? (
-                <p className="text-xs text-white/30">
-                  {t("All authorized users")}
+                <p className="text-xs text-ink-faint">
+                  {t("Nobody added yet.")}
                 </p>
               ) : (
                 accessUsers.map((u) => (
@@ -1696,7 +2027,7 @@ export default function CdnPage() {
                       <p className="text-sm font-medium text-white">
                         {u.username}
                       </p>
-                      <p className="text-xs text-white/40">{u.email}</p>
+                      <p className="text-xs text-ink-faint">{u.email}</p>
                     </div>
                     <button
                       onClick={() => handleAccessRevoke(u.id)}
@@ -1727,7 +2058,7 @@ export default function CdnPage() {
       >
         {folderDeleteTarget && (
           <div className="space-y-4">
-            <p className="text-sm text-white/60">
+            <p className="text-sm text-ink-dim">
               {t(
                 "This folder will be deleted. Move or delete its files first.",
               )}
@@ -1741,13 +2072,13 @@ export default function CdnPage() {
                   setFolderDeleteTarget(null);
                   setFolderDeleteError(null);
                 }}
-                className="rounded-lg px-4 py-2 text-sm text-white/50 hover:text-white transition-colors"
+                className="rounded-lg px-4 py-2 text-sm text-ink-dim hover:text-white transition-colors"
               >
                 {t("Cancel")}
               </button>
               <button
                 onClick={handleFolderDelete}
-                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400 transition-colors"
+                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-accent-on hover:bg-red-400 transition-colors"
               >
                 {t("Delete")}
               </button>
@@ -1795,6 +2126,18 @@ export default function CdnPage() {
         }}
         title={t("Edit · {name}", { name: editTextFile?.name ?? "" })}
         size="xl"
+        variant={editorFull ? "full" : editorLayout}
+        actions={
+          <button
+            onClick={() => setEditorFull((full) => !full)}
+            aria-label={t(editorFull ? "Exit full screen" : "Full screen")}
+            title={t(editorFull ? "Exit full screen" : "Full screen")}
+            aria-pressed={editorFull}
+            className="icon-button h-11 w-11 max-sm:hidden"
+          >
+            <Icon icon={editorFull ? faDownLeftAndUpRightToCenter : faUpRightAndDownLeftFromCenter} />
+          </button>
+        }
       >
         {editTextFile && (
           <CdnTextEditor
@@ -1804,6 +2147,8 @@ export default function CdnPage() {
             content={textContent}
             loading={textContentLoading}
             saving={textContentSaving}
+            readOnly={textReadOnly}
+            notice={textNotice}
             onChange={setTextContent}
             onSave={handleSaveTextContent}
             onClose={() => setEditTextFile(null)}
@@ -1812,6 +2157,43 @@ export default function CdnPage() {
       </AdminModal>
     </div>
   );
+}
+
+/* ─── File context menu ──────────────────────────────────────────────────── */
+function fileMenuProps(
+  file: CdnFileItem,
+  actions: {
+    onPreview: () => void;
+    onEdit?: () => void;
+    onShare: () => void;
+    onAccess: () => void;
+    onRename: () => void;
+    onMove: () => void;
+    onCopy: () => void;
+    onDelete: () => void;
+  },
+): { quick: FileMenuItem[]; items: FileMenuItem[] } {
+  const download = () => {
+    const link = document.createElement("a");
+    link.href = `${file.url}?download=1`;
+    link.download = file.name;
+    link.click();
+  };
+  return {
+    quick: [
+      { label: "Open", icon: faEye, action: actions.onPreview },
+      { label: "Edit", icon: faPenToSquare, action: actions.onEdit },
+      { label: "Share", icon: faLink, action: actions.onShare },
+      { label: "Download", icon: faDownload, action: download },
+    ],
+    items: [
+      { label: "Manage access", icon: faUsers, action: actions.onAccess },
+      { label: "Rename", icon: faPen, action: actions.onRename },
+      { label: "Move", icon: faArrowsAlt, action: actions.onMove },
+      { label: "Duplicate", icon: faCopy, action: actions.onCopy },
+      { label: "Delete", icon: faTrash, action: actions.onDelete, danger: true, separated: true },
+    ],
+  };
 }
 
 /* ─── Grid card ───────────────────────────────────────────────────────────── */
@@ -1842,21 +2224,38 @@ function GridCard({
 }) {
   const { t, dateLocale } = useI18n();
 
-  const [hover, setHover] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  const expiring = file.expiresAt && new Date(file.expiresAt) > new Date();
   return (
     <>
       <div
-        className="group relative flex flex-col overflow-hidden rounded-xl border border-white/[0.04] bg-white/5 hover:border-orange-500/20 transition-colors cursor-grab active:cursor-grabbing"
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
+        className="file-card group cursor-grab active:cursor-grabbing"
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         onDoubleClick={onPreview}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
       >
-        {/* Thumbnail */}
-        <div className="relative h-32 bg-black/20">
+        <div className="flex h-12 min-w-0 items-center gap-3 pl-2">
+          <FileTypeIcon mimeType={file.mimeType} className="shrink-0 text-[15px]" />
+          <p className="min-w-0 flex-1 truncate text-sm font-medium" title={file.name}>
+            {file.name}
+          </p>
+          <button
+            onClick={(e) => setMenu(anchorFromElement(e.currentTarget))}
+            className="icon-button -mr-1 h-10 w-10"
+            aria-label={t("File actions")}
+            title={t("File actions")}
+            aria-haspopup="menu"
+            aria-expanded={!!menu}
+          >
+            <Icon icon={faEllipsisVertical} />
+          </button>
+        </div>
+        <div className="relative aspect-[16/11] overflow-hidden rounded-lg bg-sheet">
           <button
             className="h-full w-full"
             onClick={onPreview}
@@ -1864,152 +2263,52 @@ function GridCard({
           >
             <FileThumbnail file={file} />
           </button>
-          {hover && (
-            <div className="file-actions-overlay absolute inset-0 flex items-center justify-center flex-wrap gap-1.5 bg-black/60 backdrop-blur-sm p-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onPreview();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-                title={t("Preview")}
-              >
-                <Icon icon={faEye} />
-              </button>
-              {onEdit && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit();
-                  }}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-blue-400/80 hover:bg-blue-500/20 hover:text-blue-300 transition-colors"
-                  title={t("Edit text")}
-                >
-                  <Icon icon={faFileCode} />
-                </button>
-              )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAccess();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-                title={t("Manage access")}
-              >
-                <Icon icon={faUsers} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onShare();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-                title={t("Share")}
-              >
-                <Icon icon={faLink} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRename();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-                title={t("Rename")}
-              >
-                <Icon icon={faPen} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCopy();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
-                title={t("Duplicate")}
-              >
-                <Icon icon={faCopy} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-xs text-rose-400/70 hover:bg-rose-500/[0.06] hover:text-rose-400 transition-colors"
-                title={t("Delete")}
-              >
-                <Icon icon={faTrash} />
-              </button>
-            </div>
-          )}
-          {/* Drag indicator */}
-          <div className="absolute top-1 left-1 hidden group-hover:flex items-center justify-center h-5 w-5 rounded bg-black/40">
-            <Icon icon={faArrowsAlt} className="text-[9px] text-white/40" />
-          </div>
-          {/* Expiry badge */}
-          {file.expiresAt && new Date(file.expiresAt) > new Date() && (
-            <span className="absolute bottom-1 right-1 rounded bg-yellow-500/80 px-1 py-0.5 text-[9px] font-bold text-black">
-              EXP
+          {expiring && (
+            <span className="status-badge absolute bottom-2 left-2 bg-yellow-500/15 text-yellow-500 backdrop-blur-sm">
+              {t("Expires")}
             </span>
           )}
-        </div>
-
-        {/* Info */}
-        <div className="p-2">
-          <p
-            className="truncate text-xs font-medium text-white/80"
-            title={file.name}
-          >
-            {file.name}
-          </p>
-          <p className="mt-0.5 text-[10px] text-white/30">
-            {formatBytes(file.size)}
-          </p>
-          <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] text-white/20">
-            <Icon icon={faUser} className="shrink-0" />
-            <span className="truncate">{file.uploadedByUsername}</span>
-          </p>
-        </div>
-        <button
-          onClick={() => setMenuOpen(true)}
-          className="flex min-h-11 w-full items-center justify-center gap-2 border-t border-white/5 bg-white/[0.02] px-3 text-sm text-orange-400"
-          aria-label={t("File actions")}
-        >
-          ⋯ {t("Actions")}
-        </button>
-      </div>
-      <AdminModal
-        open={menuOpen}
-        title={file.name}
-        onClose={() => setMenuOpen(false)}
-        size="md"
-      >
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {[
-            { label: "Preview", action: onPreview },
-            { label: "Edit text", action: onEdit },
-            { label: "Manage access", action: onAccess },
-            { label: "Share", action: onShare },
-            { label: "Rename", action: onRename },
-            { label: "Move", action: onMove },
-            { label: "Duplicate", action: onCopy },
-            { label: "Delete", action: onDelete },
-          ]
-            .filter((item) => item.action)
-            .map((item) => (
+          <div className="file-actions-overlay absolute right-2 top-2 flex gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {[
+              { label: "Share", icon: faLink, action: onShare },
+              { label: "Preview", icon: faEye, action: onPreview },
+            ].map((item) => (
               <button
                 key={item.label}
-                className={
-                  item.label === "Delete" ? "danger-button" : "secondary-button"
-                }
-                onClick={() => {
-                  setMenuOpen(false);
-                  item.action?.();
+                onClick={(e) => {
+                  e.stopPropagation();
+                  item.action();
                 }}
+                className="grid h-9 w-9 place-items-center rounded-full bg-sheet text-[13px] text-ink shadow-lift"
+                title={t(item.label)}
+                aria-label={t(item.label)}
               >
-                {t(item.label)}
+                <Icon icon={item.icon} />
               </button>
             ))}
+          </div>
         </div>
-      </AdminModal>
+        <p className="flex min-w-0 items-center gap-2 px-1.5 pt-2.5 text-xs text-ink-dim">
+          <span className="avatar h-[22px] w-[22px] bg-surface text-[9px] text-ink-dim">
+            {file.uploadedByUsername.slice(0, 2).toUpperCase()}
+          </span>
+          <span className="truncate">
+            {formatBytes(file.size)} ·{" "}
+            {new Date(file.createdAt).toLocaleDateString(dateLocale, {
+              day: "numeric",
+              month: "short",
+            })}
+          </span>
+        </p>
+      </div>
+      {menu && (
+        <FileMenu
+          anchor={menu}
+          label={file.name}
+          onClose={() => setMenu(null)}
+          {...fileMenuProps(file, { onPreview, onEdit, onShare, onAccess, onRename, onMove, onCopy, onDelete })}
+        />
+      )}
     </>
   );
 }
@@ -2040,32 +2339,18 @@ function FolderCard({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className={`group flex flex-col items-center gap-3 rounded-xl border p-4 transition-colors ${
-        dragOver
-          ? "border-orange-400 bg-orange-500/15 ring-2 ring-orange-400"
-          : "border-white/[0.04] bg-white/5 hover:border-orange-500/30 hover:bg-orange-500/5"
-      }`}
+      className={`folder-card ${dragOver ? "drop" : ""}`}
     >
       <Icon
-        icon={faFolderOpen}
-        className={`text-4xl transition-colors ${dragOver ? "text-orange-400" : "text-orange-400/60 group-hover:text-orange-400"}`}
+        icon={folder.allowedUsers.length > 0 ? faLock : faFolder}
+        className="shrink-0 text-[17px] text-ink-dim"
       />
-      <div className="w-full text-center">
-        <p
-          className="truncate text-xs font-medium text-white/80"
-          title={folder.name}
-        >
-          {folder.name}
-        </p>
-        <p className="mt-0.5 text-[10px] text-white/30">
-          {count} {t(count === 1 ? "file" : "files")}
-        </p>
-        {folder.allowedUsers.length > 0 && (
-          <span className="mt-1 inline-flex items-center gap-1 text-[9px] text-orange-400/50">
-            <Icon icon={faLock} /> {t("private")}
-          </span>
-        )}
-      </div>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium" title={folder.name}>
+        {folder.name}
+      </span>
+      <span className="text-xs text-ink-faint">
+        {count} {t(count === 1 ? "file" : "files")}
+      </span>
     </button>
   );
 }
@@ -2099,7 +2384,7 @@ function DetailsPane({
     setTimeout(() => setCopied(false), 2000);
   };
   return (
-    <div className="flex h-full flex-col gap-5 overflow-y-auto rounded-xl border border-white/[0.04] bg-[#111118] p-5">
+    <div className="flex h-full flex-col gap-5 overflow-y-auto rounded-card bg-surface-2 p-5">
       {/* Thumbnail */}
       <div className="h-52 w-full shrink-0 overflow-hidden rounded-lg bg-black/20">
         <FileThumbnail file={file} />
@@ -2111,30 +2396,30 @@ function DetailsPane({
         </h3>
         <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-xs">
           <div>
-            <p className="mb-0.5 text-white/30">{t("MIME type")}</p>
-            <p className="truncate font-mono text-white/70">{file.mimeType}</p>
+            <p className="mb-0.5 text-ink-faint">{t("MIME type")}</p>
+            <p className="truncate font-mono text-ink">{file.mimeType}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">{t("Size")}</p>
-            <p className="text-white/70">{formatBytes(file.size)}</p>
+            <p className="mb-0.5 text-ink-faint">{t("Size")}</p>
+            <p className="text-ink">{formatBytes(file.size)}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">{t("Folder")}</p>
-            <p className="capitalize text-white/70">{file.folder}</p>
+            <p className="mb-0.5 text-ink-faint">{t("Folder")}</p>
+            <p className="capitalize text-ink">{file.folder}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">{t("Uploaded by")}</p>
-            <p className="text-white/70">{file.uploadedByUsername}</p>
+            <p className="mb-0.5 text-ink-faint">{t("Uploaded by")}</p>
+            <p className="text-ink">{file.uploadedByUsername}</p>
           </div>
           <div>
-            <p className="mb-0.5 text-white/30">{t("Upload date")}</p>
-            <p className="text-white/70">
+            <p className="mb-0.5 text-ink-faint">{t("Upload date")}</p>
+            <p className="text-ink">
               {new Date(file.createdAt).toLocaleString(dateLocale)}
             </p>
           </div>
           {file.expiresAt && (
             <div>
-              <p className="mb-0.5 text-white/30">{t("Expires")}</p>
+              <p className="mb-0.5 text-ink-faint">{t("Expires")}</p>
               <p
                 className={`font-medium ${
                   new Date(file.expiresAt) < new Date()
@@ -2149,22 +2434,22 @@ function DetailsPane({
         </div>
       </div>
       <div className="min-w-0">
-        <p className="mb-1 text-xs text-white/30">{t("File ID")}</p>
-        <code className="break-all text-xs text-white/60">{file._id}</code>
+        <p className="mb-1 text-xs text-ink-faint">{t("File ID")}</p>
+        <code className="break-all text-xs text-ink-dim">{file._id}</code>
       </div>
       {/* URL */}
       <div>
-        <p className="mb-1.5 text-xs text-white/30">{t("Authenticated URL")}</p>
+        <p className="mb-1.5 text-xs text-ink-faint">{t("Authenticated URL")}</p>
         <div className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-black/20 px-3 py-2">
           <span
-            className="flex-1 truncate font-mono text-[11px] text-white/40"
+            className="flex-1 truncate font-mono text-[11px] text-ink-faint"
             title={file.url}
           >
             {file.url}
           </span>
           <button
             onClick={copy}
-            className="flex-shrink-0 text-xs text-white/40 transition-colors hover:text-white"
+            className="flex-shrink-0 text-xs text-ink-faint transition-colors hover:text-white"
             title={t("Copy URL")}
           >
             <Icon
@@ -2178,7 +2463,7 @@ function DetailsPane({
       <div className="flex flex-wrap gap-2">
         <button
           onClick={onPreview}
-          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
+          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-ink-dim transition-colors hover:text-white"
         >
           <Icon icon={faEye} /> {t("Preview")}
         </button>
@@ -2192,13 +2477,13 @@ function DetailsPane({
         )}
         <button
           onClick={onAccess}
-          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
+          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-ink-dim transition-colors hover:text-white"
         >
           <Icon icon={faUsers} /> {t("Access")}
         </button>
         <button
           onClick={onShare}
-          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
+          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-ink-dim transition-colors hover:text-white"
         >
           <Icon icon={faLink} /> {t("Share")}
         </button>
@@ -2207,14 +2492,14 @@ function DetailsPane({
         </button>
         <button
           onClick={onRename}
-          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
+          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-ink-dim transition-colors hover:text-white"
         >
           <Icon icon={faPen} /> {t("Rename")}
         </button>
         <a
           href={file.url}
           download={file.name}
-          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-white/60 transition-colors hover:text-white"
+          className="flex items-center gap-1.5 rounded-lg border border-white/[0.04] bg-white/5 px-3 py-2 text-xs text-ink-dim transition-colors hover:text-white"
         >
           <Icon icon={faDownload} /> Download
         </a>
@@ -2256,55 +2541,58 @@ function ListRow({
   onDragEnd: () => void;
 }) {
   const { t, dateLocale } = useI18n();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menu, setMenu] = useState<MenuAnchor | null>(null);
 
   return (
     <tr
-      className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-grab active:cursor-grabbing"
+      className="group cursor-grab transition-colors hover:bg-surface-2 active:cursor-grabbing"
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
       onDoubleClick={onPreview}
     >
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded">
-            <FileThumbnail file={file} />
+      <td className="h-[52px] px-3">
+        <div className="flex min-w-0 items-center gap-3.5">
+          <div className="grid h-8 w-8 flex-shrink-0 place-items-center overflow-hidden rounded-md">
+            <FileThumbnail file={file} small />
           </div>
-          <span className="max-w-xs truncate text-sm text-white/80">
+          <span className="min-w-0 max-w-md truncate font-medium" title={file.name}>
             {file.name}
           </span>
+          {file.expiresAt && new Date(file.expiresAt) > new Date() && (
+            <span className="status-badge shrink-0 bg-yellow-500/15 text-yellow-500">
+              {t("Expires")}
+            </span>
+          )}
         </div>
       </td>
-      <td className="px-4 py-3">
-        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs capitalize text-white/50">
-          {file.folder}
-        </span>
+      <td className="col-meta px-3">
+        <span className="text-[13px] capitalize text-ink-dim">{file.folder}</span>
       </td>
-      <td className="px-4 py-3 text-xs text-white/40">
-        {formatBytes(file.size)}
-      </td>
-      <td className="px-4 py-3 text-xs text-white/40">
+      <td className="col-meta px-3 text-[13px] text-ink-dim">
         {file.uploadedByUsername}
       </td>
-      <td className="px-4 py-3 text-xs text-white/40">
+      <td className="col-meta whitespace-nowrap px-3 text-[13px] text-ink-dim">
         {new Date(file.createdAt).toLocaleDateString(dateLocale)}
       </td>
-      <td className="px-4 py-3">
-        <button
-          onClick={() => setMenuOpen(true)}
-          className="secondary-button w-full sm:hidden"
-        >
-          ⋯ {t("Actions")}
-        </button>
-        <div className="hidden flex-wrap items-center justify-end gap-1 sm:flex">
+      <td className="col-meta whitespace-nowrap px-3 text-[13px] text-ink-dim">
+        {formatBytes(file.size)}
+      </td>
+      <td className="px-2">
+        <div className="flex items-center justify-end">
+        <div className="hidden items-center justify-end opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 sm:flex">
           <button
             onClick={(event) => {
               event.stopPropagation();
               onMove();
             }}
             title={t("Move")}
-            className="min-h-11 min-w-11 rounded p-2 text-white/50"
+            aria-label={t("Move")}
+            className="icon-button h-9 w-9 text-[13px]"
           >
             <Icon icon={faFolderOpen} />
           </button>
@@ -2313,10 +2601,11 @@ function ListRow({
               e.stopPropagation();
               onPreview();
             }}
-            className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
+            className="icon-button h-9 w-9 text-[13px]"
             title={t("Preview")}
+            aria-label={t("Preview")}
           >
-            <Icon icon={faEye} className="text-xs" />
+            <Icon icon={faEye} />
           </button>
           {onEdit && (
             <button
@@ -2324,10 +2613,10 @@ function ListRow({
                 e.stopPropagation();
                 onEdit();
               }}
-              className="rounded p-1.5 text-blue-400/50 hover:text-blue-400 transition-colors"
+              className="icon-button h-9 w-9 text-[13px] text-blue-500"
               title={t("Edit text")}
             >
-              <Icon icon={faFileCode} className="text-xs" />
+              <Icon icon={faFileCode} />
             </button>
           )}
           <button
@@ -2335,88 +2624,71 @@ function ListRow({
               e.stopPropagation();
               onAccess();
             }}
-            className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
+            className="icon-button h-9 w-9 text-[13px]"
             title={t("Manage access")}
           >
-            <Icon icon={faUsers} className="text-xs" />
+            <Icon icon={faUsers} />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onShare();
             }}
-            className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
+            className="icon-button h-9 w-9 text-[13px]"
             title={t("Share")}
           >
-            <Icon icon={faLink} className="text-xs" />
+            <Icon icon={faLink} />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onRename();
             }}
-            className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
+            className="icon-button h-9 w-9 text-[13px]"
             title={t("Rename")}
           >
-            <Icon icon={faPen} className="text-xs" />
+            <Icon icon={faPen} />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onCopy();
             }}
-            className="rounded p-1.5 text-white/40 hover:text-white transition-colors"
+            className="icon-button h-9 w-9 text-[13px]"
             title={t("Duplicate")}
           >
-            <Icon icon={faCopy} className="text-xs" />
+            <Icon icon={faCopy} />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
             }}
-            className="rounded p-1.5 text-rose-400/50 hover:text-rose-400 transition-colors"
+            className="icon-button h-9 w-9 text-[13px] hover:text-rose-500"
             title={t("Delete")}
           >
-            <Icon icon={faTrash} className="text-xs" />
+            <Icon icon={faTrash} />
           </button>
         </div>
-        <AdminModal
-          open={menuOpen}
-          title={file.name}
-          onClose={() => setMenuOpen(false)}
-          size="md"
+        <button
+          onClick={(e) => setMenu(anchorFromElement(e.currentTarget))}
+          className="icon-button h-10 w-10"
+          aria-label={t("File actions")}
+          title={t("File actions")}
+          aria-haspopup="menu"
+          aria-expanded={!!menu}
         >
-          <div className="grid gap-2">
-            {[
-              { label: "Preview", action: onPreview },
-              { label: "Edit text", action: onEdit },
-              { label: "Manage access", action: onAccess },
-              { label: "Share", action: onShare },
-              { label: "Rename", action: onRename },
-              { label: "Move", action: onMove },
-              { label: "Duplicate", action: onCopy },
-              { label: "Delete", action: onDelete },
-            ]
-              .filter((item) => item.action)
-              .map((item) => (
-                <button
-                  key={item.label}
-                  className={
-                    item.label === "Delete"
-                      ? "danger-button"
-                      : "secondary-button"
-                  }
-                  onClick={() => {
-                    setMenuOpen(false);
-                    item.action?.();
-                  }}
-                >
-                  {t(item.label)}
-                </button>
-              ))}
-          </div>
-        </AdminModal>
+          <Icon icon={faEllipsisVertical} />
+        </button>
+        </div>
+        {menu && (
+          <FileMenu
+            anchor={menu}
+            label={file.name}
+            onClose={() => setMenu(null)}
+            {...fileMenuProps(file, { onPreview, onEdit, onShare, onAccess, onRename, onMove, onCopy, onDelete })}
+          />
+        )}
       </td>
     </tr>
   );

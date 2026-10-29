@@ -14,6 +14,7 @@ import { driveRequest, accessibleFile } from "../../lib/drive";
 import { publicDownload } from "../../lib/download";
 import { storageUsage, reserveBytes, releaseBytes } from "../../lib/quota";
 import { prepareFile } from "../../lib/serve-file";
+import { filePath } from "../../lib/storage";
 import Member from "../../models/Member";
 import FileModel from "../../models/CdnFile";
 import FolderModel from "../../models/CdnFolder";
@@ -39,6 +40,7 @@ before(async () => {
   process.env.NEXTAUTH_SECRET =
     "integration-only-secret-with-at-least-thirty-two-characters";
   process.env.STORAGE_QUOTA_GB = "0.001";
+  process.env.STORAGE_ENCRYPTION_KEY = "cd".repeat(32);
   directory = await fs.mkdtemp(path.join(os.tmpdir(), "ervisiodrive-"));
   process.env.STORAGE_DIR = directory;
   await connectDB();
@@ -186,18 +188,30 @@ test("upload, ACL enforcement, folder moves, editor, quota, shares and media ran
     file = uploaded.data[0],
     fileId = String(file._id);
   assert.equal((await storageUsage()).usedBytes, 11);
-  assert.equal(
+  assert.equal((await storageUsage(admin.id)).member?.usedBytes, 11);
+  const listFor = async (actor: typeof member, query = "") =>
     (
       await (
-        await driveRequest(
-          request("GET", "/api/admin/cdn/files"),
-          ["files"],
-          member,
-        )
+        await driveRequest(request("GET", `/api/admin/cdn/files${query}`), ["files"], actor)
       ).json()
-    ).data.length,
-    1,
+    ).data.length;
+  // Uploads are private to their owner until shared.
+  assert.equal(await listFor(member), 0);
+  await assert.rejects(() => accessibleFile(member, fileId));
+  assert.equal(await listFor(member, `?owner=${admin.id}`).catch(() => "denied"), "denied");
+  assert.equal(await listFor(admin, `?owner=all`), 1);
+  // Stored bytes are encrypted at rest and served decrypted.
+  const stored = await FileModel.findById(fileId).lean<any>();
+  assert.equal(stored.encryption.alg, "aes-256-gcm-chunked");
+  assert.ok(!(await fs.readFile(filePath(stored.folder, stored.storedName))).includes("hello world"));
+  await driveRequest(
+    request("PATCH", "/api/admin/cdn/access", { visibility: "members" }),
+    ["files", fileId, "access"],
+    admin,
   );
+  assert.equal(await listFor(member), 1);
+  assert.equal(await listFor(member, "?scope=shared"), 1);
+  assert.equal(await listFor(member, "?scope=mine"), 0);
   const folder = await (
     await driveRequest(
       request("POST", "/api/admin/cdn/folders", { name: "Private files" }),
@@ -330,4 +344,113 @@ test("atomic quota reservations never oversubscribe; raising quota permits new w
     await authenticatePassword(member.email, "My replacement password!"),
     null,
   );
+});
+test("streaming uploads honour in-app limits, per-member quotas, events and statistics", async () => {
+  const { settingsRequest } = await import("../../lib/settings");
+  const { statsRequest } = await import("../../lib/stats");
+  const { eventsCollection } = await import("../../lib/events");
+  const upload = async (actor: Actor, name: string, data: Buffer) => {
+    const form = new FormData();
+    form.append("files", new File([new Uint8Array(data)], name, { type: "application/octet-stream" }));
+    const encoded = new Request("http://localhost:3000", { method: "POST", body: form }),
+      bytes = Buffer.from(await encoded.arrayBuffer());
+    return driveRequest(
+      new NextRequest("http://localhost:3000/api/admin/cdn/upload", {
+        method: "POST",
+        headers: {
+          "content-type": encoded.headers.get("content-type")!,
+          "content-length": String(bytes.length),
+        },
+        body: bytes,
+      }),
+      ["upload"],
+      actor,
+    );
+  };
+  const settle = (promise: Promise<Response>) =>
+    promise.then((r) => r.status, (e) => e.status ?? 500);
+  // The in-app setting overrides the environment in both directions.
+  await settingsRequest(request("PATCH", "/api/settings", { uploadMaxMb: 0.0001, storageQuotaGb: 0 }), admin);
+  assert.equal(await settle(upload(admin, "big.bin", Buffer.alloc(200 * 1024, 1))), 413);
+  await settingsRequest(request("PATCH", "/api/settings", { uploadMaxMb: 0 }), admin);
+  const large = Buffer.alloc(3 * 1024 * 1024 + 7, 7);
+  const response = await upload(admin, "large.bin", large);
+  assert.equal(response.status, 201);
+  const big = (await response.json()).data[0];
+  assert.equal(big.size, large.length);
+  const served = (await prepareFile(
+    new NextRequest("http://localhost:3000/c", { headers: { range: "bytes=1048570-1048580" } }),
+    await accessibleFile(admin, String(big._id)),
+  )).response();
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), large.subarray(1048570, 1048581));
+  // Per-member quota: a member override blocks only that member.
+  const person = await Member.create({ email: "quota@example.com", role: "member", quotaGb: 1 / 1024 ** 2 });
+  const limited: Actor = { id: String(person._id), email: person.email, name: "Q", role: "member" };
+  assert.equal(await settle(upload(limited, "a.bin", Buffer.alloc(2048))), 413);
+  assert.equal(await settle(upload(limited, "b.bin", Buffer.alloc(100))), 201);
+  assert.equal((await storageUsage(limited.id)).member?.usedBytes, 100);
+  // Events feed the statistics; members only see their own.
+  const events = await eventsCollection();
+  assert.ok((await events.countDocuments({ type: "upload", actorId: admin.id })) >= 1);
+  const stats = async (actor: Actor, query = "") =>
+    (await statsRequest(new NextRequest(`http://localhost:3000/api/stats${query}`), [], actor)).json();
+  const workspace = await stats(admin);
+  assert.equal(workspace.data.scope, "workspace");
+  assert.ok(workspace.data.storage.byMember.some((row: any) => row.memberId === limited.id && row.bytes === 100));
+  assert.ok(workspace.data.storage.byCategory.length > 0);
+  assert.ok(workspace.data.totals.uploads >= 2);
+  const own = await stats(limited);
+  assert.equal(own.data.scope, "member");
+  assert.equal(own.data.storage.usedBytes, 100);
+  await assert.rejects(() => statsRequest(new NextRequest(`http://localhost:3000/api/stats?member=${admin.id}`), [], limited));
+  await settingsRequest(request("PATCH", "/api/settings", { uploadMaxMb: null, storageQuotaGb: null }), admin);
+});
+test("files encrypted by the maintenance script are readable by the app", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const plain = Buffer.alloc(150 * 1024, 3);
+  const storedName = "ab".repeat(12) + ".bin";
+  await fs.mkdir(path.join(directory, "other"), { recursive: true });
+  await fs.writeFile(path.join(directory, "other", storedName), plain);
+  const legacy = await FileModel.create({
+    name: "legacy.bin", storedName, folder: "other", mimeType: "application/octet-stream",
+    size: plain.length, url: `/api/content/other/${storedName}`, uploadedBy: admin.id,
+  });
+  await FileModel.updateOne({ _id: legacy._id }, { $unset: { encryption: 1 } });
+  execFileSync(process.execPath, ["scripts/ops.mjs", "encrypt"], { env: process.env });
+  const doc = await FileModel.findById(legacy._id).lean<any>();
+  assert.equal(doc.encryption.alg, "aes-256-gcm-chunked");
+  assert.notDeepEqual(await fs.readFile(path.join(directory, "other", storedName)), plain);
+  const served = (await prepareFile(new NextRequest("http://localhost:3000/c"), doc)).response();
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), plain);
+});
+
+test("plugin API is hidden without the socket secret and manages the drive with it", async () => {
+  const { pluginRequest, runtimeFile } = await import("../../lib/plugin");
+  const call = (method: string, pathname: string, body?: unknown, secret?: string) => {
+    const req = request(method, pathname, body);
+    if (secret) req.headers.set("x-ervisio-plugin", secret);
+    return pluginRequest(req, pathname.replace("/api/plugin/", "").split("/")).catch((e) => e);
+  };
+  delete process.env.PLUGIN_SOCKET_SECRET;
+  assert.equal((await call("GET", "/api/plugin/status")).status, 404);
+  const secret = "s".repeat(64);
+  process.env.PLUGIN_SOCKET_SECRET = secret;
+  assert.equal((await call("GET", "/api/plugin/status", undefined, "x".repeat(64))).status, 404);
+  const status = await (await call("GET", "/api/plugin/status", undefined, secret)).json();
+  assert.equal(status.data.encryption, true);
+  assert.equal(typeof status.data.members, "number");
+  const settings = await call("PATCH", "/api/plugin/settings", { maxFilesPerUpload: 7 }, secret);
+  assert.equal(settings.status, 200);
+  assert.equal((await call("PUT", "/api/plugin/public-url", { url: "http://drive.example.com" }, secret)).status, 400);
+  const previous = process.env.NEXTAUTH_URL;
+  try {
+    const saved = await (await call("PUT", "/api/plugin/public-url", { url: "https://drive.example.com/" }, secret)).json();
+    assert.deepEqual(saved.data, { publicUrl: "https://drive.example.com", trustProxy: true });
+    assert.equal(process.env.NEXTAUTH_URL, "https://drive.example.com");
+    assert.equal(JSON.parse(await fs.readFile(runtimeFile(), "utf8")).publicUrl, "https://drive.example.com");
+  } finally {
+    process.env.NEXTAUTH_URL = previous;
+    process.env.TRUST_PROXY = "false";
+    delete process.env.PLUGIN_SOCKET_SECRET;
+  }
 });

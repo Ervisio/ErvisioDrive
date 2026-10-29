@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { request } from "@/lib/client-request";
 import { useI18n, LanguageSwitch } from "@/components/LocaleProvider";
+import { useEditorLayout } from "@/components/admin/cdn/CdnTextEditor";
+import { LimitSettings } from "@/components/LimitSettings";
 import type { settingsDefaults } from "@/lib/settings";
 type Settings = typeof settingsDefaults;
 export function SettingsPanel({ admin }: { admin: boolean }) {
@@ -13,7 +15,8 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
   const [draft, setDraft] = useState<Settings | null>(null),
     [tab, setTab] = useState("General"),
     [busy, setBusy] = useState(false),
-    [saved, setSaved] = useState(false);
+    [saved, setSaved] = useState(false),
+    [editorLayout, setEditorLayout] = useEditorLayout();
   useEffect(() => {
     if (data?.data) setDraft(data.data);
   }, [data]);
@@ -88,6 +91,24 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
           </span>
           <LanguageSwitch />
         </div>
+        <label className="setting-row">
+          <span>
+            <strong>{t("Text editor")}</strong>
+            <small>
+              {t(
+                "How text and code files open. Full screen is always one click away. Saved on this device.",
+              )}
+            </small>
+          </span>
+          <select
+            value={editorLayout}
+            onChange={(e) => setEditorLayout(e.target.value as "dialog" | "panel")}
+            className="field w-auto"
+          >
+            <option value="dialog">{t("Dialog")}</option>
+            <option value="panel">{t("Side panel")}</option>
+          </select>
+        </label>
       </section>
       {admin && (
         <>
@@ -100,7 +121,7 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
           {draft && (
             <form onSubmit={save}>
               <nav className="tab-strip" aria-label={t("Settings sections")}>
-                {["General", "Storage", "Authentication", "API & security"].map(
+                {["General", "Space and limits", "Authentication", "API & security"].map(
                   (item) => (
                     <button
                       type="button"
@@ -143,44 +164,13 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
                     </p>
                   </>
                 )}
-                {tab === "Storage" && (
+                {tab === "Space and limits" && (
                   <>
-                    <p className="muted">
-                      {t(
-                        "Allocated quota: {quota} GiB. File storage grows as files are uploaded; nothing is preallocated.",
-                        { quota: data.environment.quotaGb },
-                      )}
-                    </p>
-                    <label className="setting-row">
-                      <span>
-                        <strong>{t("Use the setup upload limit")}</strong>
-                        <small>
-                          {t("The setup limit is {limit} MiB per request.", {
-                            limit: data.environment.uploadMaxMb,
-                          })}
-                        </small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={draft.uploadMaxMb === null}
-                        onChange={(e) =>
-                          set(
-                            "uploadMaxMb",
-                            e.target.checked
-                              ? null
-                              : data.environment.uploadMaxMb,
-                          )
-                        }
-                        className="h-5 w-5 accent-orange-500"
-                      />
-                    </label>
-                    {draft.uploadMaxMb !== null &&
-                      number(
-                        "uploadMaxMb",
-                        "Upload limit (MiB)",
-                        1,
-                        data.environment.uploadMaxMb,
-                      )}
+                    <LimitSettings
+                      draft={draft}
+                      environment={data.environment}
+                      set={set}
+                    />
                     <p className="muted">
                       {t(
                         "To expand the disk quota, run setup.sh --resize or setup.bat --resize on the host.",
@@ -221,8 +211,8 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
                           : "Not configured",
                       )}
                     </p>
-                    <div className="rounded-xl bg-black/20 p-4 text-xs">
-                      <p className="mb-2 text-white/40">
+                    <div className="rounded-card bg-black/20 p-4 text-xs">
+                      <p className="mb-2 text-ink-faint">
                         {t("Server environment")}
                       </p>
                       <code className="break-all">
@@ -235,7 +225,7 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
                         <br />
                         COGNITO_CLIENT_SECRET=…
                       </code>
-                      <p className="mt-4 text-white/40">{t("Callback URL")}</p>
+                      <p className="mt-4 text-ink-faint">{t("Callback URL")}</p>
                       <code className="break-all">
                         {data.environment.callbackBase}
                         /api/auth/callback/cognito
@@ -259,12 +249,6 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
                       "membersCanCreateTokens",
                       "Allow member API access",
                       "When disabled, existing member tokens stop working too.",
-                    )}
-                    {number(
-                      "apiRequestsPerMinute",
-                      "API requests per minute per token",
-                      1,
-                      10000,
                     )}
                     {number(
                       "defaultTokenLifetimeDays",
@@ -292,7 +276,7 @@ export function SettingsPanel({ admin }: { admin: boolean }) {
                   </>
                 )}
               </div>
-              <div className="sticky bottom-0 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#111118]/95 p-4 backdrop-blur">
+              <div className="sticky bottom-0 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-card border border-white/10 bg-sheet/95 p-4 backdrop-blur">
                 <span role="status" className="text-sm text-emerald-400">
                   {saved ? t("Settings saved") : ""}
                 </span>

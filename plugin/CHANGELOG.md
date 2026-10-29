@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 - 2026-10-29
+
+- Update the drive from the plugin: when the drive is older, a strip under the header offers the update, then shows its log until the drive runs again (new admin command `update`).
+- The drive reports its version to the plugin.
+
 ## 0.3.0 - 2026-10-29
 
 - Subfolders at any depth from the UI, with a clickable path and "up one level".

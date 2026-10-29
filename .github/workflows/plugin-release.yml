@@ -30,6 +30,7 @@ jobs:
     with:
       bump: ${{ github.event_name == 'workflow_dispatch' && inputs.bump || '' }}
       notes: ${{ inputs.notes }}
+      run-tests: true
       working-directory: plugin
       sync-root-version: true
     secrets: inherit

@@ -11,7 +11,7 @@ import { liveFilter } from "@/lib/drive";
 import { prepareFile } from "@/lib/serve-file";
 import { recordEvent } from "@/lib/events";
 import { canReadFile } from "@/lib/policy";
-import FolderModel from "@/models/CdnFolder";
+import { loadFolder } from "@/lib/folders";
 
 const form = (token: string, locale: Locale, invalid = false) => {
   const t = (key: string) => translate(locale, key);
@@ -57,7 +57,7 @@ export async function publicDownload(req: NextRequest, token: string) {
   }).lean<any>();
   if (!file) return fail(410, "File removed or expired");
   // The link only works while its creator can still read the file.
-  const folder = await FolderModel.findOne({ slug: file.folder }).lean<any>();
+  const folder = await loadFolder(file.folder);
   if (
     !canReadFile(
       { id: String(creator._id), email: creator.email, name: creator.name, role: creator.role },

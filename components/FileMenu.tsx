@@ -58,9 +58,16 @@ export function FileMenu({
     setPosition({ left, top });
   }, [anchor]);
 
+  // Parents often pass an inline onClose; read it through a ref so a re-render
+  // does not re-run the effect, steal focus back and close the menu on scroll.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
+    const onClose = () => closeRef.current();
     const previous = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
+    ref.current
+      ?.querySelector<HTMLButtonElement>("[role=menuitem]")
+      ?.focus({ preventScroll: true });
     const outside = (event: Event) => {
       if (!ref.current?.contains(event.target as Node)) onClose();
     };
@@ -71,17 +78,23 @@ export function FileMenu({
         previous?.focus();
       }
     };
+    // Opening a menu can nudge a scroll container (touch taps scroll the
+    // trigger into view); only later scrolls should dismiss it.
+    const opened = performance.now();
+    const scroll = () => {
+      if (performance.now() - opened > 250) onClose();
+    };
     document.addEventListener("pointerdown", outside, true);
     document.addEventListener("keydown", key);
     window.addEventListener("resize", onClose);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("scroll", scroll, true);
     return () => {
       document.removeEventListener("pointerdown", outside, true);
       document.removeEventListener("keydown", key);
       window.removeEventListener("resize", onClose);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", scroll, true);
     };
-  }, [onClose]);
+  }, []);
 
   const moveFocus = (event: React.KeyboardEvent) => {
     const buttons = Array.from(

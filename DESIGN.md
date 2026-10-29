@@ -48,6 +48,23 @@ Drive: `.rail-item`, `.panel-item` (`.active`, `.drop` per il drag&drop), `.new-
 - **Drive**: filtro a pillole `.scope-filter` Tutti / Miei / Condivisi con me (`?scope=`). Con `?owner=` compare `.owner-banner` con «Torna al mio drive».
 - **Dialog Accesso** (file e cartelle): due radio card `.visibility-option`, Privato / Tutti i membri, poi l'elenco delle persone aggiunte.
 
+## Barra laterale (round 011 B)
+
+Pannello estendibile/ritraibile: ritratto mostra solo icone con tooltip, esteso mostra etichette e contatori. Il blocco in basso (spazio usato) resta fisso; l'elenco cartelle scorre da solo quando non entra.
+
+## Selezione e azioni in blocco (round 012 A "Barra in testata")
+
+- Ogni file ha una checkbox (`.select-box`): su schede appare al passaggio del mouse al posto dell'icona, su touch è sempre visibile. "Seleziona tutto" in testa a griglia, elenco ed Esplora.
+- Con almeno un file selezionato la testata diventa `.select-bar` (pillola accent-soft): conteggio, Sposta, Scarica, Elimina. Maiusc+clic seleziona un intervallo, ⌘A tutto, Esc annulla.
+- Eliminare una cartella apre un dialog con il numero di sottocartelle e l'opzione "Elimina anche i suoi N file" (`.del-opt`, tinta danger quando attiva). Senza l'opzione i file tornano nella categoria automatica.
+
+## Sottocartelle, Esplora file e ordinamento (round 013 A "Albero + elenco")
+
+- "Nuova cartella" crea sempre dentro la cartella aperta; il percorso è un breadcrumb (`.crumbs`) con "Su di un livello", e ogni voce è anche un bersaglio di trascinamento.
+- Vista Esplora (`.explorer`): albero a sinistra (240px, chevron per espandere, si apre da solo sul percorso corrente) e tabella a destra con colonne Nome, Tipo, Dimensione, Creato, Modificato. Clic sull'intestazione ordina, di nuovo inverte (`aria-sort`). Doppio clic o Invio apre una cartella.
+- Il menu "Ordina" in testata vale per tutte le viste: nome, tipo, dimensione, creazione, modifica, crescente/decrescente.
+- <760px l'albero sparisce; <640px restano solo Nome e Dimensione e il titolo della cartella va su una riga intera sopra gli strumenti.
+
 ## Responsive
 
 - **≥1024px**: rail + pannello + foglio.

@@ -1,6 +1,15 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Cookie } from "@playwright/test";
 import fs from "node:fs/promises";
+// Tests run in one worker; reusing the session keeps the owner under the
+// per-email sign-in rate limit.
+let ownerSession: Cookie[] | null = null;
 async function login(page: Page) {
+  if (ownerSession) {
+    await page.context().addCookies(ownerSession);
+    await page.goto("/");
+    await expect(page.getByText("Readme.txt", { exact: true })).toBeVisible();
+    return;
+  }
   await page.goto("/login");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await page.getByLabel("Email", { exact: true }).fill("ui-owner@example.com");
@@ -10,6 +19,7 @@ async function login(page: Page) {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL("http://127.0.0.1:3111/");
   await expect(page.getByText("Readme.txt", { exact: true })).toBeVisible();
+  ownerSession = await page.context().cookies();
 }
 async function noOverflow(page: Page) {
   expect(
@@ -192,4 +202,62 @@ test("limits, per-person quota and shared-with-me filter", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Shared with me", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("nested folders, explorer view, sorting and bulk selection", async ({
+  page,
+}, info) => {
+  await login(page);
+  const root = `Projects ${info.project.name}`;
+  const createFolder = async (name: string) => {
+    await page
+      .locator(".explorer-bar")
+      .getByRole("button", { name: "New folder", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Folder name *").fill(name);
+    await dialog.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  };
+
+  await page.getByRole("button", { name: "Explorer view", exact: true }).click();
+  await createFolder(root);
+  const table = page.locator(".explorer-table");
+  await table.getByRole("button", { name: root, exact: true }).click();
+  await expect(
+    page.getByRole("navigation", { name: "Folder path" }),
+  ).toContainText(root);
+  await createFolder("Drafts");
+  await expect(table.getByRole("button", { name: "Drafts", exact: true })).toBeVisible();
+  await noOverflow(page);
+  await page.screenshot({
+    path: `test-results/screenshots/${info.project.name}-explorer.png`,
+    fullPage: true,
+  });
+
+  await page.getByRole("button", { name: "Up one level", exact: true }).click();
+  await table.getByRole("button", { name: "Name", exact: true }).click();
+  await expect(table.locator('th[aria-sort="ascending"]')).toHaveText(/Name/);
+  await table.getByRole("button", { name: "Name", exact: true }).click();
+  await expect(table.locator('th[aria-sort="descending"]')).toHaveText(/Name/);
+
+  await page.getByRole("checkbox", { name: "Select Readme.txt" }).check();
+  const bar = page.getByRole("toolbar", { name: "Actions on selected files" });
+  await expect(bar).toContainText("1 selected");
+  await noOverflow(page);
+  await page.keyboard.press("Escape");
+  await expect(bar).toBeHidden();
+
+  await page.getByRole("button", { name: "List view", exact: true }).click();
+  await page
+    .getByRole("row")
+    .filter({ hasText: root })
+    .getByRole("button", { name: "Folder actions" })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete folder" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("1 subfolders");
+  await dialog.getByRole("button", { name: "Delete folder", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(root, { exact: true })).toHaveCount(0);
 });

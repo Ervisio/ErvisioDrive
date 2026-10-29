@@ -51,7 +51,7 @@ export function Documentation() {
           {[
             [
               "Files and folders",
-              "Upload files, switch between grid/list/details, search and sort. Open Actions on any file to preview, edit, rename, move, duplicate, share or delete it. On phones, use the folder chooser instead of drag-and-drop.",
+              "Upload files, create folders inside folders and switch between grid, list and Explorer views. Sort by name, type, size, creation or modification date. Select several files to delete, move or download them together. Open Actions on any file to preview, edit, rename, move, duplicate, share or delete it.",
             ],
             [
               "Authentication",

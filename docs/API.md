@@ -40,8 +40,8 @@ A request is allowed only when **every applicable check succeeds**:
 - File-only tokens can read/rename/delete a selected file according to scope, but cannot upload or copy/move into unselected folders.
 - Folder lists and file counts are filtered too; access is checked before serialization.
 - Built-in folder slugs: `images`, `videos`, `audio`, `documents`, `other`.
-- Custom slugs come from the folder response. Restrictions are exact; folders are not recursive trees in this version.
-- Restricted tokens cannot create new top-level folders, since those folders would not yet be in their envelope.
+- Custom slugs come from the folder response. A selected folder also covers every subfolder inside it, including subfolders created later.
+- Restricted tokens cannot create top-level folders or move a folder to the top level, since the result would leave their envelope. They can create and move folders inside one they allow.
 - Resource bounds constrain content operations. Explicit workspace administration scopes still govern workspace settings, members and audit independently.
 
 ### Delegation and management
@@ -72,7 +72,7 @@ Error messages are canonical English for integrations. UI messages are localized
 | 401 | Missing, invalid, expired or revoked token/ancestor; WWW-Authenticate: Bearer |
 | 403 | Scope, current role, envelope, ownership or ACL denies access |
 | 404 | Operation or resource not found |
-| 409 | File busy, folder not empty, protected owner or conflicting data |
+| 409 | File busy, folder holds files and no `files` choice was given, protected owner or conflicting data |
 | 411 | Multipart upload missing Content-Length |
 | 413 | Body/file/editor limit or file quota exceeded |
 | 415 | File cannot be edited as text |
@@ -97,7 +97,7 @@ curl "$BASE/api/v1/files?limit=25" -H "Authorization: Bearer $ERVISIO_TOKEN"
 
 Pass `pagination.nextCursor` to the next request until null. Collections are live rather than snapshot-isolated. New records inserted while paging may appear on a fresh first page.
 
-The file collection defaults to all accessible custom and built-in folders. `folder=documents` or a custom slug restricts it. `search` is a literal, case-insensitive name substring up to 200 characters. This differs intentionally from the browser UI's original **All** category, which separates custom folders.
+The file collection defaults to all accessible custom and built-in folders. `folder=documents` or a custom slug restricts it. `recursive=true` together with `folder` also includes every subfolder. `search` is a literal, case-insensitive name substring up to 200 characters. This differs intentionally from the browser UI's original **All** category, which separates custom folders.
 
 ## Upload and download
 
@@ -140,6 +140,34 @@ curl -X PATCH "$BASE/api/v1/files/FILE_ID/expiry" \
 ```
 
 `GET /files/{id}/content` requires `files:content:read`; `PUT` requires `files:content:write` and `{content:"UTF-8 text"}`. Maximum content size is 2 MiB after UTF-8 encoding. Quota growth is reserved before writes. Content writes are serialized per file; there is no ETag/version precondition in this version.
+
+## Subfolders
+
+Folders nest up to 32 levels. Each folder carries `parent` (the containing slug, or `null`) and `ancestors` (every containing slug, outermost first). Access granted on a folder opens all of its subfolders, and the owner of a folder also manages the subfolders others create inside it.
+
+```bash
+# Create a subfolder
+curl -X POST "$BASE/api/v1/folders" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' --data '{"name":"Contracts","parent":"clients-a1b2c3d4"}'
+# List the direct subfolders of a folder (parent=root lists the top level)
+curl "$BASE/api/v1/folders?parent=clients-a1b2c3d4" -H "Authorization: Bearer $TOKEN"
+# Move a folder, with everything inside it, to the top level
+curl -X PATCH "$BASE/api/v1/folders/contracts-e5f6a7b8" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' --data '{"parent":null}'
+# Delete a folder, its subfolders and every file inside them
+curl -X DELETE "$BASE/api/v1/folders/clients-a1b2c3d4?files=delete" -H "Authorization: Bearer $TOKEN"
+```
+
+A folder cannot move into itself or one of its subfolders (400). Deleting a folder that holds files, directly or in a subfolder, needs `files=keep` (files go back to their automatic category) or `files=delete`.
+
+## Bulk file actions
+
+`POST /files/bulk-delete` (`files:delete`) takes `{"ids":[...]}`; `POST /files/bulk-move` (`files:move`) takes `{"ids":[...],"folder":"slug"}`. Up to 500 IDs per call. Each file is checked exactly like its single-file endpoint and one failure does not stop the others. The response lists every outcome:
+
+```json
+{ "success": false, "succeeded": 41, "failed": 1,
+  "data": [{ "id": "…", "status": 200 }, { "id": "…", "status": 403, "error": "File access denied or file expired" }] }
+```
 
 ## Access and sharing
 

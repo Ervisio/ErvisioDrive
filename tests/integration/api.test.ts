@@ -507,3 +507,28 @@ test("Cognito requires a verified whitelisted email and pins issuer + subject wi
   delete process.env.COGNITO_ISSUER;
   delete process.env.COGNITO_CLIENT_ID;
 });
+test("v1 covers nested folders, descendant token scope and bulk file actions", async () => {
+  const scopes = ["folders:create", "folders:list", "folders:update", "folders:delete", "files:list", "files:move", "files:delete"];
+  const full = (await issue(scopes)).secret;
+  const body = async (res: Response) => ({ status: res.status, data: (await res.json()).data });
+  const top = (await body(await api("POST", "/folders", full, { name: "Api top" }))).data;
+  const sub = (await body(await api("POST", "/folders", full, { name: "Api sub", parent: top.slug }))).data;
+  assert.deepEqual(sub.ancestors, [top.slug]);
+  const listed = await body(await api("GET", `/folders?parent=${top.slug}`, full));
+  assert.deepEqual(listed.data.map((f: any) => f.slug), [sub.slug]);
+  const moved = await (await api("POST", "/files/bulk-move", full, { ids: [fileId, otherId], folder: sub.slug })).json();
+  assert.equal(moved.succeeded, 2);
+  assert.equal((await api("POST", "/files/bulk-move", full, { ids: [fileId] })).status, 400);
+  assert.equal((await api("POST", "/files/bulk-delete", full, { ids: [fileId], folder: top.slug })).status, 400);
+  // A token limited to the top folder reaches its subfolders, never the top level.
+  const scoped = (await issue(scopes, { resourceMode: "selected", folderSlugs: [top.slug] })).secret;
+  assert.equal((await api("POST", "/folders", scoped, { name: "Escape" })).status, 403);
+  assert.equal((await api("POST", "/folders", scoped, { name: "Deeper", parent: sub.slug })).status, 201);
+  const inside = await body(await api("GET", `/files?folder=${top.slug}&recursive=true`, scoped));
+  assert.equal(inside.data.length, 2);
+  assert.equal((await api("PATCH", `/folders/${sub.slug}`, scoped, { parent: null })).status, 403);
+  const deleted = await (await api("POST", "/files/bulk-delete", scoped, { ids: [fileId, otherId] })).json();
+  assert.equal(deleted.succeeded, 2);
+  assert.equal((await api("DELETE", `/folders/${top.slug}`, full)).status, 200);
+  assert.equal(await FolderModel.countDocuments({ ancestors: top.slug }), 0);
+});

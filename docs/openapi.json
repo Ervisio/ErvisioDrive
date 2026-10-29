@@ -229,6 +229,15 @@
             "description": "Default all includes accessible custom folders and automatic categories."
           },
           {
+            "name": "recursive",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "With folder, also lists the files of every subfolder."
+          },
+          {
             "name": "search",
             "in": "query",
             "schema": {
@@ -563,6 +572,342 @@
             "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/upload"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/bulk-delete": {
+      "post": {
+        "operationId": "post_files_bulk_delete",
+        "summary": "Permanently delete up to 500 files; reports each outcome",
+        "tags": [
+          "files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResult"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Correlation identifier"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, role or resource access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource or operation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict, busy file or protected owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "411": {
+            "description": "Content-Length required for upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request, file, quota or editor limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "File is not editable text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Invalid byte range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; Retry-After is provided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Service error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "API disabled or service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-permissions": [
+          "files:delete"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/bulkDelete"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/bulk-move": {
+      "post": {
+        "operationId": "post_files_bulk_move",
+        "summary": "Move up to 500 files to one destination; reports each outcome",
+        "tags": [
+          "files"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResult"
+                }
+              }
+            },
+            "headers": {
+              "X-Request-Id": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Correlation identifier"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, expired or revoked token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, role or resource access denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource or operation not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict, busy file or protected owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "411": {
+            "description": "Content-Length required for upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request, file, quota or editor limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "File is not editable text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Invalid byte range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; Retry-After is provided",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Service error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "API disabled or service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-permissions": [
+          "files:move"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/bulkMove"
               }
             }
           }
@@ -3422,6 +3767,14 @@
               "type": "string",
               "pattern": "^[a-fA-F0-9]{24}$"
             }
+          },
+          {
+            "name": "parent",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "root lists top-level folders, a slug lists its direct subfolders. Omit to list every accessible folder."
           }
         ],
         "responses": {
@@ -3592,7 +3945,7 @@
       },
       "post": {
         "operationId": "post_folders",
-        "summary": "Create a top-level custom folder",
+        "summary": "Create a custom folder, optionally inside another (parent)",
         "tags": [
           "folders"
         ],
@@ -3957,7 +4310,7 @@
       },
       "patch": {
         "operationId": "patch_folders__slug_",
-        "summary": "Rename a folder or update its description",
+        "summary": "Rename, describe or move a folder (parent) with its subfolders",
         "tags": [
           "folders"
         ],
@@ -4148,7 +4501,7 @@
       },
       "delete": {
         "operationId": "delete_folders__slug_",
-        "summary": "Delete an empty custom folder",
+        "summary": "Delete a folder and its subfolders; ?files=keep|delete for content",
         "tags": [
           "folders"
         ],
@@ -4165,6 +4518,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "files",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "keep",
+                "delete"
+              ]
+            },
+            "description": "Required when the folder or a subfolder holds files: keep moves them to their automatic category, delete removes them (all must be manageable by the caller)."
           }
         ],
         "responses": {
@@ -4177,6 +4542,14 @@
                   "properties": {
                     "success": {
                       "type": "boolean"
+                    },
+                    "files": {
+                      "type": "integer",
+                      "description": "Files moved or deleted."
+                    },
+                    "folders": {
+                      "type": "integer",
+                      "description": "Folders removed, the folder included."
                     }
                   },
                   "required": [
@@ -7656,6 +8029,18 @@
             "type": "string",
             "pattern": "^[a-fA-F0-9]{24}$"
           },
+          "parent": {
+            "type": "string",
+            "nullable": true,
+            "description": "Slug of the containing folder; null at the top level."
+          },
+          "ancestors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Slugs of every containing folder, outermost first."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -8142,6 +8527,11 @@
           "description": {
             "type": "string",
             "maxLength": 300
+          },
+          "parent": {
+            "type": "string",
+            "nullable": true,
+            "description": "Slug of a readable folder to create this one inside, at most 32 levels deep. Restricted tokens may only create folders inside one they allow."
           }
         },
         "required": [
@@ -8160,8 +8550,103 @@
           "description": {
             "type": "string",
             "maxLength": 300
+          },
+          "parent": {
+            "type": "string",
+            "nullable": true,
+            "description": "Moves the folder and its subfolders inside this folder; null moves it to the top level. A folder cannot move into itself or its own subfolders."
           }
         },
+        "additionalProperties": false
+      },
+      "bulkDelete": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-fA-F0-9]{24}$"
+            },
+            "minItems": 1,
+            "maxItems": 500,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "additionalProperties": false
+      },
+      "bulkMove": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-fA-F0-9]{24}$"
+            },
+            "minItems": 1,
+            "maxItems": 500,
+            "uniqueItems": true
+          },
+          "folder": {
+            "type": "string",
+            "description": "Destination folder slug, or all for the automatic category."
+          }
+        },
+        "required": [
+          "ids",
+          "folder"
+        ],
+        "additionalProperties": false
+      },
+      "BulkResult": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "false when at least one file failed; see data."
+          },
+          "succeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "integer",
+                  "description": "Status the single-file operation returned."
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "success",
+          "succeeded",
+          "failed",
+          "data"
+        ],
         "additionalProperties": false
       },
       "member": {
@@ -8491,8 +8976,8 @@
     "folders:list": "List accessible folders",
     "folders:read": "Read folder metadata",
     "folders:create": "Create folders",
-    "folders:update": "Rename folders and edit descriptions",
-    "folders:delete": "Delete empty folders",
+    "folders:update": "Rename, describe and move folders",
+    "folders:delete": "Delete folders and their subfolders",
     "folders:access:read": "Read folder access rules",
     "folders:access:write": "Change folder access rules",
     "shares:list": "List download links",

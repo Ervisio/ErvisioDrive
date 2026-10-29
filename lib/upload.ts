@@ -10,7 +10,8 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { NextRequest } from "next/server";
 import FileModel from "@/models/CdnFile";
-import FolderModel, { BUILTIN_FOLDER_SLUGS } from "@/models/CdnFolder";
+import { BUILTIN_FOLDER_SLUGS } from "@/models/CdnFolder";
+import { loadFolder } from "@/lib/folders";
 import {
   CountStream,
   EncryptStream,
@@ -144,15 +145,17 @@ export async function receiveUpload(req: NextRequest, actor: Actor) {
       ? new Date(Date.now() + positiveInteger(fields.expiresIn, Number.MAX_SAFE_INTEGER / 1000) * 1000)
       : null;
     return await withLocks([`folder:${requested}`], async () => {
-      let override: string | null = null;
+      let override: string | null = null,
+        ancestors: string[] = [];
       if (!builtins.has(requested) && requested !== "all") {
-        const folder = await FolderModel.findOne({ slug: requested }).lean<any>();
+        const folder = await loadFolder(requested);
         if (!folder) return fail(404, "Folder not found");
         if (!canReadFolder(actor, folder)) return fail(403, "Folder access denied");
         override = requested;
+        ancestors = folder.ancestors || [];
       }
       for (const file of received)
-        if (!tokenAllowsFolder(actor, override || mimeToFolder(file.mime)))
+        if (!tokenAllowsFolder(actor, override || mimeToFolder(file.mime), ancestors))
           fail(403, "Upload destination is outside this token’s resources");
       const created: any[] = [];
       try {

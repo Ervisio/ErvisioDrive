@@ -18,6 +18,7 @@ import {
   faLock,
   faFolder,
   faChartSimple,
+  faCloud,
 } from "@fortawesome/free-solid-svg-icons";
 import { formatBytes } from "@/lib/format";
 import { request } from "@/lib/client-request";
@@ -59,6 +60,8 @@ export function AppShell({
     [error, setError] = useState(""),
     [mobile, setMobile] = useState(false),
     [account, setAccount] = useState(false),
+    [railOpen, setRailOpen] = useState(false),
+    [tip, setTip] = useState<{ label: string; x: number; y: number } | null>(null),
     drawer = useRef<HTMLDialogElement>(null),
     accountRef = useRef<HTMLDivElement>(null);
   const { data: usage } = useSWR(
@@ -83,6 +86,26 @@ export function AppShell({
       return () => clearTimeout(timer);
     }
   }, [error]);
+  // The rail's state is kept per browser, like the folder panel.
+  useEffect(() => {
+    try {
+      setRailOpen(localStorage.getItem("drive-rail") === "open");
+    } catch {}
+  }, []);
+  const toggleRail = (open: boolean) => {
+    setRailOpen(open);
+    setTip(null);
+    try {
+      localStorage.setItem("drive-rail", open ? "open" : "collapsed");
+    } catch {}
+  };
+  // One fixed tooltip next to the hovered or focused item, so the rail's scroll never clips it.
+  const showTip = (target: Element) => {
+    const el = target.closest<HTMLElement>("[data-tip]");
+    if (railOpen || !el) return setTip(null);
+    const box = el.getBoundingClientRect();
+    setTip({ label: el.dataset.tip ?? "", x: box.right + 12, y: box.top + box.height / 2 });
+  };
   useEffect(() => {
     setMobile(false);
     setAccount(false);
@@ -135,7 +158,7 @@ export function AppShell({
     : "";
   const pageLabel = t(links.find((l) => l.href === path)?.label || "My drive");
   const meter = space && (
-    <div className="px-4 py-4">
+    <div>
       {space.quotaBytes ? (
         <div
           role="meter"
@@ -152,69 +175,106 @@ export function AppShell({
     </div>
   );
   return (
-    <div className="app-shell bg-backdrop text-ink">
-      <nav className="rail" aria-label={t("Main navigation")}>
-        <Link href="/" className="rail-item brand" aria-label={siteName}>
-          <Icon icon={faHardDrive} />
-          <span className="rail-tip">{siteName}</span>
-        </Link>
-        <span className="rail-sep" />
-        {links.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            aria-label={t(link.label)}
-            aria-current={current(link.href) ? "page" : undefined}
-            className="rail-item"
+    <div className={`app-shell bg-backdrop text-ink ${railOpen ? "rail-open" : ""}`}>
+      <nav
+        className="rail"
+        aria-label={t("Main navigation")}
+        onPointerOver={(e) => showTip(e.target as Element)}
+        onPointerLeave={() => setTip(null)}
+        onFocus={(e) => e.target.matches(":focus-visible") && showTip(e.target)}
+        onBlur={() => setTip(null)}
+        onScrollCapture={() => setTip(null)}
+      >
+        <div className="rail-top">
+          <button
+            onClick={() => toggleRail(!railOpen)}
+            aria-label={t(railOpen ? "Collapse sidebar" : "Expand sidebar")}
+            aria-expanded={railOpen}
+            data-tip={t("Expand sidebar")}
+            className="rail-toggle"
           >
-            <Icon icon={link.icon} />
-            <span className="rail-tip" aria-hidden>
-              {t(link.label)}
-            </span>
+            <Icon icon={faBars} />
+          </button>
+          <Link href="/" className="rail-brand">
+            <b>
+              <Icon icon={faHardDrive} />
+            </b>
+            <span className="truncate">{siteName}</span>
           </Link>
-        ))}
-        {folders.length > 0 && <span className="rail-sep" />}
-        {folders.map((folder) => (
+        </div>
+        <div className="rail-links">
+          {links.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              aria-label={t(link.label)}
+              aria-current={current(link.href) ? "page" : undefined}
+              data-tip={t(link.label)}
+              className="rail-item"
+            >
+              <Icon icon={link.icon} />
+              <span className="rail-label">{t(link.label)}</span>
+            </Link>
+          ))}
+        </div>
+        <div className="rail-folders">
+          <span className="rail-sep" />
+          {folders.length > 0 && <p className="rail-heading">{t("Folders")}</p>}
+          {folders.map((folder) => (
+            <Link
+              key={folder.slug}
+              href={`/?folder=${encodeURIComponent(folder.slug)}`}
+              aria-label={folder.name}
+              aria-current={activeFolder === folder.slug ? "page" : undefined}
+              data-tip={folder.name}
+              className="rail-item tile"
+              style={{ "--tile": tileColor(folder.slug) } as React.CSSProperties}
+            >
+              <span className="rail-ini">{initials(folder.name)}</span>
+              <span className="rail-label">{folder.name}</span>
+              {folder.allowedUsers.length > 0 && (
+                <span className="rail-lock">
+                  <Icon icon={faLock} />
+                </span>
+              )}
+            </Link>
+          ))}
           <Link
-            key={folder.slug}
-            href={`/?folder=${encodeURIComponent(folder.slug)}`}
-            aria-label={folder.name}
-            aria-current={activeFolder === folder.slug ? "page" : undefined}
-            className="rail-item tile"
-            style={
-              activeFolder === folder.slug
-                ? undefined
-                : { background: tileColor(folder.slug) }
-            }
+            href="/?new=folder"
+            className="rail-item add"
+            aria-label={t("New folder")}
+            data-tip={t("New folder")}
           >
-            {initials(folder.name)}
-            {folder.allowedUsers.length > 0 && (
-              <span className="rail-lock">
-                <Icon icon={faLock} />
-              </span>
-            )}
-            <span className="rail-tip" aria-hidden>
-              {folder.name}
-            </span>
+            <Icon icon={faPlus} />
+            <span className="rail-label">{t("New folder")}</span>
           </Link>
-        ))}
-        <Link href="/?new=folder" className="rail-item add" aria-label={t("New folder")}>
-          <Icon icon={faPlus} />
-          <span className="rail-tip" aria-hidden>
-            {t("New folder")}
-          </span>
-        </Link>
-        <span className="flex-1" />
+        </div>
         {space && (
-          <div
-            className="usage-ring"
-            style={{ "--used": used } as React.CSSProperties}
-            title={spaceLabel}
-          >
-            <span>{space.quotaBytes ? `${Math.round(used)}%` : "∞"}</span>
+          <div className="rail-foot">
+            <div
+              className="usage-ring"
+              style={{ "--used": used } as React.CSSProperties}
+              data-tip={`${t("Storage usage")}: ${spaceLabel}`}
+              aria-label={`${t("Storage usage")}: ${spaceLabel}`}
+              role="img"
+            >
+              <span>{space.quotaBytes ? `${Math.round(used)}%` : "∞"}</span>
+            </div>
+            <div className="usage-card">
+              <b>
+                <Icon icon={faCloud} />
+                {t("Storage usage")}
+              </b>
+              {meter}
+            </div>
           </div>
         )}
       </nav>
+      {tip && !railOpen && (
+        <span className="rail-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
+          {tip.label}
+        </span>
+      )}
       <dialog
         ref={drawer}
         className="mobile-drawer"
@@ -270,7 +330,7 @@ export function AppShell({
               ))}
             </>
           )}
-          <div className="mt-auto">{meter}</div>
+          <div className="mt-auto px-4 py-4">{meter}</div>
         </div>
       </dialog>
       <div className="min-w-0">

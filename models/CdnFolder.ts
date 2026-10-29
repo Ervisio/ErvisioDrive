@@ -14,6 +14,10 @@ export interface CdnFolderDoc {
   visibility: "private" | "members";
   /** Who created the folder */
   createdBy: string;
+  /** Slug of the containing folder, null at the top level. */
+  parent: string | null;
+  /** Slugs of every containing folder, outermost first. */
+  ancestors: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,6 +45,8 @@ const cdnFolderSchema = new Schema<CdnFolderDoc>(
     allowedUsers: { type: [String], default: [] },
     visibility: { type: String, enum: ["private", "members"], default: "private" },
     createdBy: { type: String, default: "" },
+    parent: { type: String, default: null, index: true },
+    ancestors: { type: [String], default: [], index: true },
   },
   { timestamps: true },
 );

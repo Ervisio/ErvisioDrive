@@ -20,8 +20,8 @@ Permissions are explicit. Ownership, ACL, current roles and resource envelopes r
 | `folders:list` | List accessible folders |
 | `folders:read` | Read folder metadata |
 | `folders:create` | Create folders |
-| `folders:update` | Rename folders and edit descriptions |
-| `folders:delete` | Delete empty folders |
+| `folders:update` | Rename, describe and move folders |
+| `folders:delete` | Delete folders and their subfolders |
 | `folders:access:read` | Read folder access rules |
 | `folders:access:write` | Change folder access rules |
 | `shares:list` | List download links |

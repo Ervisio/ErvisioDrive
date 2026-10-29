@@ -20,6 +20,7 @@ import FileModel from "../../models/CdnFile";
 import FolderModel from "../../models/CdnFolder";
 import ShareModel from "../../models/CdnShareToken";
 import type { Actor } from "../../lib/policy";
+import { errorResponse } from "../../lib/http";
 let mongo: MongoMemoryServer, directory: string, admin: Actor, member: Actor;
 const request = (method: string, pathname: string, body?: unknown) =>
   new NextRequest(`http://localhost:3000${pathname}`, {
@@ -453,4 +454,73 @@ test("plugin API is hidden without the socket secret and manages the drive with 
     process.env.TRUST_PROXY = "false";
     delete process.env.PLUGIN_SOCKET_SECRET;
   }
+});
+test("nested folders inherit access, move without cycles, delete recursively and run bulk actions", async () => {
+  process.env.STORAGE_QUOTA_GB = "1";
+  const person = await Member.create({ email: "nested@example.com", role: "member" });
+  const member: Actor = { id: person._id.toString(), email: person.email, name: "Nested", role: "member" };
+  const call = async (actor: Actor, method: string, parts: string[], body?: unknown, query = "") => {
+    const res = await driveRequest(request(method, `/api/admin/cdn/${parts.join("/")}${query}`, body), parts, actor).catch(errorResponse);
+    return { status: res.status, body: await res.json() };
+  };
+  const put = async (actor: Actor, folder: string, name: string) => {
+    const form = new FormData();
+    form.append("folder", folder);
+    form.append("files", new File([name], name, { type: "text/plain" }));
+    const encoded = new Request("http://localhost:3000", { method: "POST", body: form }),
+      bytes = Buffer.from(await encoded.arrayBuffer());
+    const res = await driveRequest(
+      new NextRequest("http://localhost:3000/api/admin/cdn/upload", {
+        method: "POST",
+        headers: { "content-type": encoded.headers.get("content-type")!, "content-length": String(bytes.length) },
+        body: bytes,
+      }),
+      ["upload"],
+      actor,
+    );
+    return String((await res.json()).data[0]._id);
+  };
+  const top = (await call(admin, "POST", ["folders"], { name: "Projects" })).body.data;
+  const mid = (await call(admin, "POST", ["folders"], { name: "Clients", parent: top.slug })).body.data;
+  const leaf = (await call(admin, "POST", ["folders"], { name: "Rossi", parent: mid.slug })).body.data;
+  assert.equal(mid.parent, top.slug);
+  assert.deepEqual(leaf.ancestors, [top.slug, mid.slug]);
+  assert.equal((await call(admin, "POST", ["folders"], { name: "Ghost", parent: "missing" })).status, 404);
+  const children = (await call(admin, "GET", ["folders"], undefined, `?parent=${top.slug}`)).body.data;
+  assert.deepEqual(children.map((f: any) => f.slug), [mid.slug]);
+  // Access granted on the top folder reaches every subfolder.
+  const sees = async () =>
+    (await call(member, "GET", ["folders"], undefined, `?parent=${mid.slug}`)).body.data.map((f: any) => f.slug);
+  assert.deepEqual(await sees(), []);
+  assert.equal((await call(admin, "POST", ["folders", top.slug, "access"], { email: member.email })).status, 200);
+  assert.deepEqual(await sees(), [leaf.slug]);
+  const deep = await put(admin, leaf.slug, "deep.txt");
+  await put(admin, mid.slug, "middle.txt");
+  const own = await put(member, leaf.slug, "mine.txt");
+  const recursive = (await call(admin, "GET", ["files"], undefined, `?folder=${top.slug}&recursive=true`)).body.data;
+  assert.equal(recursive.length, 3);
+  assert.equal((await call(admin, "GET", ["files"], undefined, `?folder=${top.slug}`)).body.data.length, 0);
+  // A folder never moves into itself or one of its subfolders.
+  assert.equal((await call(admin, "PATCH", ["folders", top.slug], { parent: leaf.slug })).status, 400);
+  assert.equal((await call(admin, "PATCH", ["folders", top.slug], { parent: top.slug })).status, 400);
+  const moved = (await call(admin, "PATCH", ["folders", mid.slug], { parent: null })).body.data;
+  assert.deepEqual(moved.ancestors, []);
+  assert.deepEqual((await FolderModel.findOne({ slug: leaf.slug }).lean<any>()).ancestors, [mid.slug]);
+  await call(admin, "PATCH", ["folders", mid.slug], { parent: top.slug });
+  // Bulk actions report every file; one failure does not stop the others.
+  const missing = new mongoose.Types.ObjectId().toString();
+  const bulk = await call(member, "POST", ["files", "bulk"], { action: "delete", ids: [own, missing] });
+  assert.equal(bulk.body.succeeded, 1);
+  assert.equal(bulk.body.failed, 1);
+  assert.equal(bulk.body.data.find((r: any) => r.id === missing).status, 404);
+  assert.equal((await call(admin, "POST", ["files", "bulk"], { action: "wipe", ids: [deep] })).status, 400);
+  const move = await call(admin, "POST", ["files", "bulk"], { action: "move", ids: [deep], folder: top.slug });
+  assert.equal(move.body.succeeded, 1);
+  assert.equal((await FileModel.findById(deep).lean<any>()).folder, top.slug);
+  // Deleting the top folder needs a decision on the files it contains, then removes the whole subtree.
+  assert.equal((await call(admin, "DELETE", ["folders", top.slug])).status, 409);
+  const gone = await call(admin, "DELETE", ["folders", top.slug], undefined, "?files=delete");
+  assert.deepEqual([gone.body.files, gone.body.folders], [2, 3]);
+  assert.equal(await FolderModel.countDocuments({ slug: { $in: [top.slug, mid.slug, leaf.slug] } }), 0);
+  assert.equal(await FileModel.countDocuments({ _id: deep }), 0);
 });

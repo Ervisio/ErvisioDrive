@@ -18,6 +18,7 @@ import {
   tokenAllowsFolder,
   canReadFolder,
   canManage,
+  canManageFolder,
   safeName,
   escapeRegex,
   positiveInteger,
@@ -30,12 +31,19 @@ import {
   mimeToFolder,
   generateStoredName,
 } from "@/lib/storage";
-import { fail, json, readJson, rateLimit } from "@/lib/http";
+import { errorResponse, fail, json, readJson, rateLimit } from "@/lib/http";
 import { unzipSync } from "fflate";
 import { ODT_MIME, isEditableTextFile, isOdtFile } from "@/lib/text-files";
 import { readStored, rewrap, writeStored } from "@/lib/crypto-store";
 import { recordEvent } from "@/lib/events";
 import { receiveUpload } from "@/lib/upload";
+import {
+  MAX_FOLDER_DEPTH,
+  attachChains,
+  loadFolder,
+  publicFolder,
+  withDescendants,
+} from "@/lib/folders";
 
 const builtins = new Set<string>(BUILTIN_FOLDER_SLUGS);
 export const liveFilter = () => ({
@@ -45,7 +53,7 @@ const id = (value: string) =>
   mongoose.isValidObjectId(value) ? value : fail(400, "Invalid identifier");
 async function folderFor(slug: string) {
   if (builtins.has(slug)) return null;
-  const folder = await FolderModel.findOne({ slug }).lean<any>();
+  const folder = await loadFolder(slug);
   if (!folder) fail(404, "Folder not found");
   return folder;
 }
@@ -60,6 +68,35 @@ export async function accessibleFile(actor: Actor, fileId: string) {
 function requireManager(actor: Actor, owner: string) {
   if (!canManage(actor, owner))
     fail(403, "Only the owner or an administrator can manage access");
+}
+async function removeFile(req: NextRequest, actor: Actor, file: any) {
+  await fs.unlink(filePath(file.folder, file.storedName)).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  const removed = await FileModel.deleteOne({ _id: file._id });
+  await ShareModel.deleteMany({ fileId: String(file._id) });
+  if (removed.deletedCount) {
+    await releaseBytes(file.size, file.uploadedBy || undefined);
+    await recordEvent(req, "delete", { actor, file, bytes: file.size });
+  }
+}
+/** Moves a stored file to another folder, on disk and in the database. */
+async function relocate(file: any, destination: string) {
+  const from = filePath(file.folder, file.storedName),
+    to = filePath(destination, file.storedName);
+  await fs.mkdir(path.dirname(to), { recursive: true });
+  await fs.rename(from, to).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  try {
+    await FileModel.updateOne(
+      { _id: file._id },
+      { $set: { folder: destination, url: fileUrl(destination, file.storedName) } },
+    );
+  } catch (error) {
+    await fs.rename(to, from).catch(() => {});
+    throw error;
+  }
 }
 function expiry(value: unknown) {
   if (value == null || value === "") return null;
@@ -80,7 +117,8 @@ async function access(
     return fail(400, "Automatic categories do not have separate access rules");
   if (kind === "folder" && !canReadFolder(actor, doc))
     fail(403, "Folder access denied");
-  requireManager(actor, kind === "file" ? doc.uploadedBy : doc.createdBy);
+  if (kind === "folder" ? !canManageFolder(actor, doc) : !canManage(actor, doc.uploadedBy))
+    fail(403, "Only the owner or an administrator can manage access");
   const Model: mongoose.Model<any> = kind === "file" ? FileModel : FolderModel;
   const filter = kind === "file" ? { _id: id(key) } : { slug: key };
   if (req.method === "GET") {
@@ -125,28 +163,133 @@ export async function driveRequest(
   req: NextRequest,
   segments: string[],
   actor: Actor,
+  /** Set for the steps of a bulk request, which was rate limited once already. */
+  nested = false,
 ) {
   const keys =
-    segments[0] === "files" && segments[1] && req.method !== "GET"
+    segments[0] === "files" &&
+    segments[1] &&
+    segments[1] !== "bulk" &&
+    req.method !== "GET"
       ? [`file:${segments[1]}`]
       : [];
-  return withLocks(keys, () => dispatchDriveRequest(req, segments, actor));
+  return withLocks(keys, () =>
+    dispatchDriveRequest(req, segments, actor, nested),
+  );
+}
+const BULK_LIMIT = 500;
+/** Applies one delete or move to many files and reports the outcome of each. */
+async function bulk(req: NextRequest, actor: Actor) {
+  const body = await readJson(req),
+    ids = body.ids;
+  if (
+    !Array.isArray(ids) ||
+    !ids.length ||
+    ids.length > BULK_LIMIT ||
+    ids.some((value) => typeof value !== "string")
+  )
+    return fail(400, `Provide between 1 and ${BULK_LIMIT} file ids`);
+  if (body.action !== "delete" && body.action !== "move")
+    return fail(400, "Action must be delete or move");
+  if (body.action === "move" && (typeof body.folder !== "string" || !body.folder))
+    return fail(400, "A destination folder is required");
+  const results: { id: string; status: number; error?: string }[] = [];
+  for (const fileId of [...new Set<string>(ids)]) {
+    const step = new NextRequest(
+      new URL(`/api/admin/cdn/files/${encodeURIComponent(fileId)}`, req.url),
+      body.action === "move"
+        ? {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ folder: body.folder }),
+          }
+        : { method: "DELETE" },
+    );
+    let response: Response;
+    try {
+      response = await driveRequest(step, ["files", fileId], actor, true);
+    } catch (error) {
+      response = errorResponse(error);
+    }
+    const outcome = await response.json().catch(() => ({}));
+    results.push(
+      response.ok
+        ? { id: fileId, status: response.status }
+        : { id: fileId, status: response.status, error: outcome.error },
+    );
+  }
+  const failed = results.filter((r) => r.status >= 400).length;
+  return json({
+    success: failed === 0,
+    data: results,
+    succeeded: results.length - failed,
+    failed,
+  });
+}
+/** Moves a folder, with all its subfolders, under another folder or to the top level. */
+async function moveFolder(
+  actor: Actor,
+  folder: any,
+  target: unknown,
+  update: Record<string, string>,
+) {
+  const slug: string = folder.slug,
+    destination =
+      target === null || target === "" || target === "root" ? null : String(target);
+  if (destination === slug) return fail(400, "A folder cannot be moved into itself");
+  if (!destination && actor.api?.resourceMode === "selected")
+    return fail(403, "Restricted tokens cannot create new top-level folders");
+  return withLocks(destination ? [`folder:${destination}`] : [], async () => {
+    let ancestors: string[] = [];
+    if (destination) {
+      const parent = builtins.has(destination) ? null : await loadFolder(destination);
+      if (!parent) return fail(404, "Parent folder not found");
+      if (!canReadFolder(actor, parent)) return fail(403, "Folder access denied");
+      if (parent.ancestors?.includes(slug))
+        return fail(400, "A folder cannot be moved into one of its subfolders");
+      ancestors = [...(parent.ancestors || []), parent.slug];
+    }
+    const nested = await FolderModel.find({ ancestors: slug }).lean<any[]>(),
+      below = (f: any) => f.ancestors.slice(f.ancestors.indexOf(slug));
+    if (
+      ancestors.length + Math.max(0, ...nested.map((f) => below(f).length)) >
+      MAX_FOLDER_DEPTH
+    )
+      return fail(400, `Folders can be nested at most ${MAX_FOLDER_DEPTH} levels deep`);
+    if (nested.length)
+      await FolderModel.bulkWrite(
+        nested.map((f) => ({
+          updateOne: {
+            filter: { _id: f._id },
+            update: { $set: { ancestors: [...ancestors, ...below(f)] } },
+          },
+        })),
+      );
+    const moved = await FolderModel.findOneAndUpdate(
+      { slug },
+      { $set: { ...update, parent: destination, ancestors } },
+      { returnDocument: "after", runValidators: true },
+    ).lean<any>();
+    return json({ success: true, data: publicFolder(moved) });
+  });
 }
 async function dispatchDriveRequest(
   req: NextRequest,
   segments: string[],
   actor: Actor,
+  nested: boolean,
 ) {
   await connectDB();
   const method = req.method,
     [section, key, action] = segments;
-  if (method !== "GET") {
+  if (method !== "GET" && !nested) {
     const { writeRequestsPerMinute } = await getSettings();
     if (writeRequestsPerMinute) await rateLimit(`write:${actor.id}`, writeRequestsPerMinute);
   }
+  if (section === "files" && key === "bulk" && method === "POST")
+    return bulk(req, actor);
   if (section === "files" && !key && method === "GET") {
-    const folders = await FolderModel.find().lean<any[]>();
-    const bySlug = new Map(folders.map((f) => [f.slug, f]));
+    const folders = attachChains(await FolderModel.find().lean<any[]>());
     const visibleFilter: any = { $and: [liveFilter()] };
     // Admins may browse a member's space (?owner=<id>) or everything (?owner=all).
     const owner = req.nextUrl.searchParams.get("owner"),
@@ -190,7 +333,7 @@ async function dispatchDriveRequest(
                 $in: rule.fileIds.map((id) => new mongoose.Types.ObjectId(id)),
               },
             },
-            { folder: { $in: rule.folderSlugs } },
+            { folder: { $in: withDescendants(rule.folderSlugs, folders) } },
           ],
         });
     const counts = await FileModel.aggregate([
@@ -206,7 +349,14 @@ async function dispatchDriveRequest(
       search = (req.nextUrl.searchParams.get("search") || "").trim();
     if (search.length > 200) fail(400, "Search is limited to 200 characters");
     const query: any = { $and: [visibleFilter] };
-    if (folder !== "all") query.$and.push({ folder });
+    // ?recursive=true also returns the files of every subfolder.
+    if (folder !== "all")
+      query.$and.push({
+        folder:
+          req.nextUrl.searchParams.get("recursive") === "true"
+            ? { $in: withDescendants([folder], folders) }
+            : folder,
+      });
     else if (!actor.api) query.$and.push({ folder: { $in: [...builtins] } });
     if (search)
       query.$and.push({ name: { $regex: escapeRegex(search), $options: "i" } });
@@ -243,26 +393,38 @@ async function dispatchDriveRequest(
   }
   if (section === "folders" && !key) {
     if (method === "GET") {
-      const folders = await FolderModel.find().sort({ name: 1 }).lean<any[]>(),
-        owner = req.nextUrl.searchParams.get("owner");
+      const folders = attachChains(
+          await FolderModel.find().sort({ name: 1 }).lean<any[]>(),
+        ),
+        owner = req.nextUrl.searchParams.get("owner"),
+        // ?parent=root lists top-level folders, ?parent=<slug> its direct subfolders.
+        parent = req.nextUrl.searchParams.get("parent");
       if (owner && actor.role !== "admin")
         fail(403, "Only administrators can browse other members' folders");
       // Admins see their own space by default, like everyone else.
       const viewer = owner ? actor : { ...actor, role: "member" as const };
       return json({
         success: true,
-        data: folders.filter(
-          (f) =>
-            canReadFolder(viewer, f) &&
-            (!owner || owner === "all" || f.createdBy === owner),
-        ),
+        data: folders
+          .filter(
+            (f) =>
+              canReadFolder(viewer, f) &&
+              (!owner || owner === "all" || f.createdBy === owner) &&
+              (!parent ||
+                (f.parent ?? null) === (parent === "root" ? null : parent)),
+          )
+          .map(publicFolder),
       });
     }
     if (method === "POST") {
-      if (actor.api?.resourceMode === "selected")
-        fail(403, "Restricted tokens cannot create new top-level folders");
       const body = await readJson(req),
-        name = safeName(body.name);
+        name = safeName(body.name),
+        parentSlug =
+          body.parent === undefined || body.parent === null || body.parent === ""
+            ? null
+            : String(body.parent);
+      if (!parentSlug && actor.api?.resourceMode === "selected")
+        fail(403, "Restricted tokens cannot create new top-level folders");
       if (name.length > 80 || String(body.description || "").length > 300)
         return fail(400, "Name or description is too long");
       const base =
@@ -274,13 +436,36 @@ async function dispatchDriveRequest(
           .replace(/^-|-$/g, "")
           .slice(0, 60) || "cartella";
       const slug = `${base}-${crypto.randomBytes(4).toString("hex")}`;
-      const folder = await FolderModel.create({
-        name,
-        slug,
-        description: body.description || "",
-        createdBy: actor.id,
+      const create = async (ancestors: string[]) =>
+        json(
+          {
+            success: true,
+            data: publicFolder(
+              (
+                await FolderModel.create({
+                  name,
+                  slug,
+                  description: body.description || "",
+                  createdBy: actor.id,
+                  parent: parentSlug,
+                  ancestors,
+                })
+              ).toObject(),
+            ),
+          },
+          201,
+        );
+      if (!parentSlug) return create([]);
+      // The parent stays locked so it cannot be deleted or moved meanwhile.
+      return withLocks([`folder:${parentSlug}`], async () => {
+        const parent = builtins.has(parentSlug) ? null : await loadFolder(parentSlug);
+        if (!parent) return fail(404, "Parent folder not found");
+        if (!canReadFolder(actor, parent)) return fail(403, "Folder access denied");
+        const ancestors = [...(parent.ancestors || []), parent.slug];
+        if (ancestors.length > MAX_FOLDER_DEPTH)
+          return fail(400, `Folders can be nested at most ${MAX_FOLDER_DEPTH} levels deep`);
+        return create(ancestors);
       });
-      return json({ success: true, data: folder }, 201);
     }
   }
   if (section === "folders" && key) {
@@ -290,17 +475,41 @@ async function dispatchDriveRequest(
       if (
         !folder ||
         !canReadFolder(actor, folder) ||
-        !canManage(actor, folder.createdBy)
+        !canManageFolder(actor, folder)
       )
         return fail(403, "Operation not authorized");
       if (method === "DELETE") {
-        if (await FileModel.exists({ folder: key }))
+        // Subfolders go with the folder. ?files=keep moves every file to its
+        // default category, ?files=delete removes them all.
+        const mode = req.nextUrl.searchParams.get("files"),
+          subfolders = await FolderModel.find({ ancestors: key }).lean<any[]>(),
+          slugs = [key, ...subfolders.map((f) => f.slug)],
+          files = await FileModel.find({ folder: { $in: slugs } }).lean<any[]>();
+        if (files.length && mode !== "keep" && mode !== "delete")
           return fail(
             409,
             "Move or delete all files before deleting the folder",
           );
-        await FolderModel.deleteOne({ slug: key });
-        return json({ success: true });
+        if (
+          mode === "delete" &&
+          files.some((file) => !canManage(actor, file.uploadedBy))
+        )
+          return fail(403, "The folder contains files of other members");
+        await withLocks(
+          files.map((file) => `file:${file._id}`),
+          async () => {
+            for (const file of files) {
+              if (mode === "delete") await removeFile(req, actor, file);
+              else await relocate(file, mimeToFolder(file.mimeType));
+            }
+          },
+        );
+        await FolderModel.deleteMany({ slug: { $in: slugs } });
+        return json({
+          success: true,
+          files: files.length,
+          folders: slugs.length,
+        });
       }
       if (method === "PATCH") {
         const body = await readJson(req),
@@ -308,12 +517,15 @@ async function dispatchDriveRequest(
         if (body.name !== undefined) update.name = safeName(body.name);
         if (body.description !== undefined)
           update.description = String(body.description).slice(0, 300);
+        if (body.parent !== undefined) return moveFolder(actor, folder, body.parent, update);
         return json({
           success: true,
-          data: await FolderModel.findOneAndUpdate(
-            { slug: key },
-            { $set: update },
-            { returnDocument: "after", runValidators: true },
+          data: publicFolder(
+            await FolderModel.findOneAndUpdate(
+              { slug: key },
+              { $set: update },
+              { returnDocument: "after", runValidators: true },
+            ).lean<any>(),
           ),
         });
       }
@@ -377,7 +589,8 @@ async function dispatchDriveRequest(
       }
     }
     if (action === "copy" && method === "POST") {
-      if (!tokenAllowsFolder(actor, file.folder))
+      const home = await folderFor(file.folder);
+      if (!tokenAllowsFolder(actor, file.folder, home?.ancestors))
         fail(403, "Copy destination is outside this token’s resources");
       const storedName = generateStoredName(file.name),
         destination = filePath(file.folder, storedName);
@@ -485,7 +698,6 @@ async function dispatchDriveRequest(
         return withLocks([`folder:${destination}`], async () => {
           const folder = await folderFor(destination);
           if (
-            !tokenAllowsFolder(actor, destination) ||
             !canReadFolder(actor, folder || { slug: destination })
           )
             return fail(403, "Folder access denied");
@@ -530,15 +742,7 @@ async function dispatchDriveRequest(
       });
     }
     if (!action && method === "DELETE") {
-      await fs.unlink(filePath(file.folder, file.storedName)).catch((error) => {
-        if (error.code !== "ENOENT") throw error;
-      });
-      const removed = await FileModel.deleteOne({ _id: key });
-      await ShareModel.deleteMany({ fileId: key });
-      if (removed.deletedCount) {
-        await releaseBytes(file.size, file.uploadedBy || undefined);
-        await recordEvent(req, "delete", { actor, file, bytes: file.size });
-      }
+      await removeFile(req, actor, file);
       return json({ success: true });
     }
   }

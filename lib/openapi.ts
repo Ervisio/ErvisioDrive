@@ -79,6 +79,15 @@ export const schemas: Record<string, unknown> = {
       description: text,
       allowedUsers: list(id),
       createdBy: id,
+      parent: {
+        ...text,
+        nullable: true,
+        description: "Slug of the containing folder; null at the top level.",
+      },
+      ancestors: {
+        ...list(text),
+        description: "Slugs of every containing folder, outermost first.",
+      },
       createdAt: date,
       updatedAt: date,
       builtin: { type: "boolean" },
@@ -264,13 +273,60 @@ export const schemas: Record<string, unknown> = {
     {
       name: { type: "string", minLength: 1, maxLength: 80 },
       description: { type: "string", maxLength: 300 },
+      parent: {
+        ...text,
+        nullable: true,
+        description:
+          "Slug of a readable folder to create this one inside, at most 32 levels deep. Restricted tokens may only create folders inside one they allow.",
+      },
     },
     ["name"],
   ),
   folderUpdate: object({
     name: { type: "string", minLength: 1, maxLength: 80 },
     description: { type: "string", maxLength: 300 },
+    parent: {
+      ...text,
+      nullable: true,
+      description:
+        "Moves the folder and its subfolders inside this folder; null moves it to the top level. A folder cannot move into itself or its own subfolders.",
+    },
   }),
+  bulkDelete: object(
+    { ids: { ...list(id), minItems: 1, maxItems: 500, uniqueItems: true } },
+    ["ids"],
+  ),
+  bulkMove: object(
+    {
+      ids: { ...list(id), minItems: 1, maxItems: 500, uniqueItems: true },
+      folder: {
+        ...text,
+        description: "Destination folder slug, or all for the automatic category.",
+      },
+    },
+    ["ids", "folder"],
+  ),
+  BulkResult: object(
+    {
+      success: {
+        type: "boolean",
+        description: "false when at least one file failed; see data.",
+      },
+      succeeded: { type: "integer", minimum: 0 },
+      failed: { type: "integer", minimum: 0 },
+      data: list(
+        object(
+          {
+            id: text,
+            status: { type: "integer", description: "Status the single-file operation returned." },
+            error: text,
+          },
+          ["id", "status"],
+        ),
+      ),
+    },
+    ["success", "succeeded", "failed", "data"],
+  ),
   member: object(
     {
       email: { type: "string", format: "email" },
@@ -389,11 +445,33 @@ export function openApiDocument() {
             "Default all includes accessible custom folders and automatic categories.",
         },
         {
+          name: "recursive",
+          in: "query",
+          schema: { type: "boolean", default: false },
+          description: "With folder, also lists the files of every subfolder.",
+        },
+        {
           name: "search",
           in: "query",
           schema: { type: "string", maxLength: 200 },
         },
       );
+    if (operation.path === "/folders" && operation.method === "GET")
+      parameters.push({
+        name: "parent",
+        in: "query",
+        schema: text,
+        description:
+          "root lists top-level folders, a slug lists its direct subfolders. Omit to list every accessible folder.",
+      });
+    if (operation.path === "/folders/{slug}" && operation.method === "DELETE")
+      parameters.push({
+        name: "files",
+        in: "query",
+        schema: { type: "string", enum: ["keep", "delete"] },
+        description:
+          "Required when the folder or a subfolder holds files: keep moves them to their automatic category, delete removes them (all must be manageable by the caller).",
+      });
     if (operation.path === "/tokens" && operation.method === "GET")
       parameters.push({
         name: "all",
@@ -498,6 +576,16 @@ export function openApiDocument() {
       (operation.path.endsWith("/access") && operation.method === "POST")
     )
       response = object({ success: { type: "boolean" } }, ["success"]);
+    if (operation.handler === "bulk") response = ref("BulkResult");
+    if (operation.path === "/folders/{slug}" && operation.method === "DELETE")
+      response = object(
+        {
+          success: { type: "boolean" },
+          files: { type: "integer", description: "Files moved or deleted." },
+          folders: { type: "integer", description: "Folders removed, the folder included." },
+        },
+        ["success"],
+      );
     if (operation.handler === "memberInvite")
       response = object(
         { success: { type: "boolean" }, invitation: { type: "string" } },

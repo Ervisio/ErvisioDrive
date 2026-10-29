@@ -19,7 +19,8 @@ import { getSettings } from "@/lib/settings";
 import connectDB from "@/lib/db/mongoose";
 import { fail, json, readJson, rateLimit } from "@/lib/http";
 import { accessibleFile } from "@/lib/drive";
-import FolderModel, { BUILTIN_FOLDER_SLUGS } from "@/models/CdnFolder";
+import { BUILTIN_FOLDER_SLUGS } from "@/models/CdnFolder";
+import { loadFolder } from "@/lib/folders";
 import { recordAudit } from "@/lib/audit";
 const adminPrincipal = (member: any): Actor => ({
   id: String(member._id),
@@ -145,7 +146,7 @@ async function validateResources(body: any, actor: Actor) {
     fail(403, "A restricted token cannot delegate unrestricted access");
   for (const fileId of fileIds) await accessibleFile(actor, fileId);
   for (const slug of folderSlugs) {
-    const folder = await FolderModel.findOne({ slug }).lean<any>();
+    const folder = await loadFolder(slug);
     if (!(BUILTIN_FOLDER_SLUGS as readonly string[]).includes(slug) && !folder)
       fail(404, "Folder not found");
     if (!canReadFolder(actor, folder || { slug }))
@@ -321,11 +322,14 @@ export async function tokensRequest(req: NextRequest, actor: Actor) {
     fail(403, "Permissions exceed the owner’s role");
   // Restricted API callers must not edit tokens whose resource envelope is broader.
   if (actor.api?.resourceMode === "selected") {
+    const outside = [];
+    for (const slug of token.folderSlugs as string[]) {
+      const folder = await loadFolder(slug);
+      if (!tokenAllowsFolder(actor, slug, folder?.ancestors)) outside.push(slug);
+    }
     if (
       token.resourceMode !== "selected" ||
-      token.folderSlugs.some(
-        (slug: string) => !tokenAllowsFolder(actor, slug),
-      ) ||
+      outside.length ||
       token.fileIds.some(
         (fileId: string) => !actor.api!.fileIds.includes(fileId),
       )

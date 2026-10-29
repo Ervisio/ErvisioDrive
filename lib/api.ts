@@ -14,7 +14,8 @@ import { storageUsage } from "@/lib/quota";
 import { prepareFile } from "@/lib/serve-file";
 import { fail, json, errorResponse, readJson } from "@/lib/http";
 import { canReadFolder, type Actor } from "@/lib/policy";
-import FolderModel, { BUILTIN_FOLDER_SLUGS } from "@/models/CdnFolder";
+import { BUILTIN_FOLDER_SLUGS } from "@/models/CdnFolder";
+import { loadFolder, publicFolder } from "@/lib/folders";
 import { recordAudit } from "@/lib/audit";
 import { recordEvent } from "@/lib/events";
 
@@ -76,7 +77,7 @@ export async function v1Request(req: NextRequest, parts: string[]) {
         break;
       }
       case "folder": {
-        const folder = await FolderModel.findOne({ slug }).lean<any>();
+        const folder = await loadFolder(slug);
         const builtin = (BUILTIN_FOLDER_SLUGS as readonly string[]).includes(
           slug,
         );
@@ -85,7 +86,9 @@ export async function v1Request(req: NextRequest, parts: string[]) {
           fail(403, "Folder access denied");
         response = json({
           success: true,
-          data: folder || { slug, name: slug, builtin: true },
+          data: folder
+            ? publicFolder(folder)
+            : { slug, name: slug, builtin: true, parent: null, ancestors: [] },
         });
         break;
       }
@@ -121,6 +124,22 @@ export async function v1Request(req: NextRequest, parts: string[]) {
       case "folders":
         response = await driveRequest(req, parts, actor);
         break;
+      case "bulk": {
+        const body = await readJson(req);
+        if (Object.keys(body).some((k) => k !== "ids" && k !== "folder"))
+          fail(400, "Only ids and folder are accepted");
+        if (operation.path === "/files/bulk-delete" && "folder" in body)
+          fail(400, "Only ids are accepted");
+        response = await driveRequest(
+          rewritten(req, "POST", {
+            ...body,
+            action: operation.path === "/files/bulk-delete" ? "delete" : "move",
+          }),
+          ["files", "bulk"],
+          actor,
+        );
+        break;
+      }
       case "storage":
         response = json({ success: true, data: await storageUsage(actor.id) });
         break;

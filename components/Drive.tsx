@@ -39,10 +39,8 @@ import {
   faBook,
   faPlus,
   faUserMinus,
-  faArrowLeft,
   faCircleInfo,
   faUser,
-  faSort,
   faFileCode,
   faArrowsAlt,
   faAnglesLeft,
@@ -52,6 +50,12 @@ import {
   faPenToSquare,
   faUpRightAndDownLeftFromCenter,
   faDownLeftAndUpRightToCenter,
+  faArrowUp,
+  faArrowDown,
+  faFolderTree,
+  faArrowDownWideShort,
+  faChevronRight,
+  faChevronDown,
 } from "@fortawesome/free-solid-svg-icons";
 import { ConfirmDialog } from "@/components/admin/ConfirmDialog";
 import { AdminModal } from "@/components/admin/AdminModal";
@@ -83,6 +87,7 @@ interface CdnFileItem {
   uploadedByUsername: string;
   expiresAt: string | null;
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface ShareToken {
@@ -100,7 +105,10 @@ interface CdnFolderItem {
   name: string;
   description: string;
   allowedUsers: string[];
+  parent?: string | null;
+  ancestors?: string[];
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface AccessUser {
@@ -110,23 +118,37 @@ interface AccessUser {
 }
 
 type FolderCounts = Record<string, number>;
-type ViewMode = "grid" | "list" | "details";
-type SortField =
-  | "name-asc"
-  | "name-desc"
-  | "size-desc"
-  | "size-asc"
-  | "date-desc"
-  | "date-asc";
+type ViewMode = "grid" | "list" | "details" | "explorer";
+const itemCount = (t: (key: string, vars?: Record<string, string | number>) => string, count: number) =>
+  count === 1 ? t("1 item") : t("{count} items", { count });
 
-const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: "name-asc", label: "A → Z" },
-  { value: "name-desc", label: "Z → A" },
-  { value: "size-desc", label: "Size (descending)" },
-  { value: "size-asc", label: "Size (ascending)" },
-  { value: "date-desc", label: "Newest first" },
-  { value: "date-asc", label: "Oldest first" },
+type SortKey = "name" | "type" | "size" | "created" | "modified";
+interface SortState {
+  key: SortKey;
+  dir: 1 | -1;
+}
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "name", label: "Name" },
+  { key: "type", label: "Type" },
+  { key: "size", label: "Size" },
+  { key: "created", label: "Created" },
+  { key: "modified", label: "Modified" },
 ];
+
+// Text keys start A to Z, the others newest or largest first.
+const nextSort = (current: SortState, key: SortKey): SortState =>
+  current.key === key
+    ? { key, dir: current.dir === 1 ? -1 : 1 }
+    : { key, dir: key === "name" || key === "type" ? 1 : -1 };
+
+const fileType = (file: CdnFileItem) => {
+  const dot = file.name.lastIndexOf(".");
+  if (dot > 0) return file.name.slice(dot + 1).toLowerCase();
+  return file.mimeType.split("/")[1] || file.mimeType;
+};
+
+const time = (value?: string) => (value ? new Date(value).getTime() : 0);
 
 const BUILTIN_FOLDERS = [
   { slug: "all", label: "All", icon: faFolder },
@@ -193,13 +215,13 @@ export default function CdnPage() {
   const { t, dateLocale } = useI18n();
 
   const [folderAccess, setFolderAccess] = useState<CdnFolderItem | null>(null);
-  const [moveSelectFile, setMoveSelectFile] = useState<CdnFileItem | null>(
-    null,
-  );
+  // Files waiting for a destination in the move dialog.
+  const [moveFiles, setMoveFiles] = useState<CdnFileItem[]>([]);
   const [moveDestination, setMoveDestination] = useState("");
-  function openMove(file: CdnFileItem) {
-    setMoveSelectFile(file);
-    setMoveDestination(file.folder);
+  function openMove(list: CdnFileItem | CdnFileItem[]) {
+    const next = Array.isArray(list) ? list : [list];
+    setMoveFiles(next);
+    setMoveDestination(next[0]?.folder ?? "");
   }
   // The active folder lives in the URL so the shell rail can link to folders.
   const router = useRouter(),
@@ -240,7 +262,12 @@ export default function CdnPage() {
     try {
       setPanelCollapsed(localStorage.getItem("drive-panel") === "collapsed");
       const saved = localStorage.getItem("drive-view");
-      if (saved === "grid" || saved === "list" || saved === "details")
+      if (
+        saved === "grid" ||
+        saved === "list" ||
+        saved === "details" ||
+        saved === "explorer"
+      )
         setViewMode(saved);
     } catch {}
   }, []);
@@ -266,7 +293,8 @@ export default function CdnPage() {
     } catch {}
   };
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState<SortField>("date-desc");
+  const [sort, setSort] = useState<SortState>({ key: "created", dir: -1 });
+  const sortBy = (key: SortKey) => setSort((current) => nextSort(current, key));
 
   // Custom folder creation
   const [folderCreateOpen, setFolderCreateOpen] = useState(false);
@@ -283,6 +311,21 @@ export default function CdnPage() {
   const [folderDeleteError, setFolderDeleteError] = useState<string | null>(
     null,
   );
+  const [folderDeleteFiles, setFolderDeleteFiles] = useState(false);
+
+  // Bulk selection
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const lastPicked = useRef<number | null>(null);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+  const [folderMenu, setFolderMenu] = useState<{
+    folder: CdnFolderItem;
+    anchor: MenuAnchor;
+  } | null>(null);
+  // Tree nodes opened by hand; the path to the open folder is always open.
+  const [treeOpen, setTreeOpen] = useState<Set<string>>(new Set());
 
   // File access management
   const [accessFile, setAccessFile] = useState<CdnFileItem | null>(null);
@@ -367,43 +410,121 @@ export default function CdnPage() {
   const files: CdnFileItem[] = data?.data ?? [];
   const folderCounts: FolderCounts = data?.folderCounts ?? {};
 
-  // Sorted files
-  const sortedFiles = useMemo<CdnFileItem[]>(() => {
-    const arr = [...files];
-    switch (sortBy) {
-      case "name-asc":
-        arr.sort((a, b) => a.name.localeCompare(b.name));
-        break;
-      case "name-desc":
-        arr.sort((a, b) => b.name.localeCompare(a.name));
-        break;
-      case "size-desc":
-        arr.sort((a, b) => b.size - a.size);
-        break;
-      case "size-asc":
-        arr.sort((a, b) => a.size - b.size);
-        break;
-      case "date-desc":
-        arr.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        );
-        break;
-      case "date-asc":
-        arr.sort(
-          (a, b) =>
-            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        );
-        break;
-    }
-    return arr;
-  }, [files, sortBy]);
-
   // Custom folders
   const { data: foldersData, mutate: mutateFolders } = useSWR<{
     data: CdnFolderItem[];
   }>("/api/admin/cdn/folders", fetcher);
-  const customFolders: CdnFolderItem[] = foldersData?.data ?? [];
+  const customFolders = useMemo<CdnFolderItem[]>(
+    () => foldersData?.data ?? [],
+    [foldersData],
+  );
+  const currentCf = customFolders.find((cf) => cf.slug === activeFolder);
+  const topFolders = useMemo(
+    () => customFolders.filter((cf) => !cf.parent),
+    [customFolders],
+  );
+  // Subfolders show under "all" (top level) and under a custom folder.
+  const showFolders = activeFolder === "all" || Boolean(currentCf);
+  const childFolders = useMemo(
+    () =>
+      showFolders
+        ? customFolders.filter(
+            (cf) => (cf.parent ?? null) === (currentCf?.slug ?? null),
+          )
+        : [],
+    [customFolders, currentCf, showFolders],
+  );
+  const crumbs = useMemo(
+    () =>
+      currentCf
+        ? [
+            ...(currentCf.ancestors ?? [])
+              .map((slug) => customFolders.find((cf) => cf.slug === slug))
+              .filter((cf): cf is CdnFolderItem => Boolean(cf)),
+            currentCf,
+          ]
+        : [],
+    [currentCf, customFolders],
+  );
+  const folderTotal = useCallback(
+    (slug: string) =>
+      customFolders
+        .filter((cf) => cf.slug === slug || cf.ancestors?.includes(slug))
+        .reduce((sum, cf) => sum + (folderCounts[cf.slug] ?? 0), 0),
+    [customFolders, folderCounts],
+  );
+  // Direct files plus direct subfolders, as an explorer counts items.
+  const folderItems = useCallback(
+    (slug: string) =>
+      (folderCounts[slug] ?? 0) +
+      customFolders.filter((cf) => cf.parent === slug).length,
+    [customFolders, folderCounts],
+  );
+
+  const sortedFiles = useMemo<CdnFileItem[]>(() => {
+    const value = (file: CdnFileItem) => {
+      switch (sort.key) {
+        case "name":
+          return file.name;
+        case "type":
+          return fileType(file);
+        case "size":
+          return file.size;
+        case "created":
+          return time(file.createdAt);
+        case "modified":
+          return time(file.updatedAt ?? file.createdAt);
+      }
+    };
+    return [...files].sort((a, b) => {
+      const x = value(a),
+        y = value(b);
+      const order =
+        typeof x === "string"
+          ? x.localeCompare(y as string, undefined, { numeric: true })
+          : x - (y as number);
+      return order * sort.dir || a.name.localeCompare(b.name);
+    });
+  }, [files, sort]);
+
+  const sortedFolders = useMemo<CdnFolderItem[]>(() => {
+    const value = (cf: CdnFolderItem) => {
+      switch (sort.key) {
+        case "size":
+          return folderTotal(cf.slug);
+        case "created":
+          return time(cf.createdAt);
+        case "modified":
+          return time(cf.updatedAt ?? cf.createdAt);
+        default:
+          return cf.name;
+      }
+    };
+    return [...childFolders].sort((a, b) => {
+      const x = value(a),
+        y = value(b);
+      const order =
+        typeof x === "string"
+          ? x.localeCompare(y as string, undefined, { numeric: true })
+          : x - (y as number);
+      return order * sort.dir || a.name.localeCompare(b.name);
+    });
+  }, [childFolders, sort, folderTotal]);
+
+  // Folders as a depth-first list, for the move picker and the tree.
+  const folderTree = useMemo(() => {
+    const out: { folder: CdnFolderItem; depth: number }[] = [];
+    const walk = (parent: string | null, depth: number) =>
+      customFolders
+        .filter((cf) => (cf.parent ?? null) === parent)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((folder) => {
+          out.push({ folder, depth });
+          walk(folder.slug, depth + 1);
+        });
+    walk(null, 0);
+    return out;
+  }, [customFolders]);
 
   const { data: shareData, mutate: mutateShare } = useSWR<{
     data: ShareToken[];
@@ -490,6 +611,7 @@ export default function CdnPage() {
         body: JSON.stringify({
           name: folderCreateName.trim(),
           description: folderCreateDesc.trim(),
+          ...(currentCf ? { parent: currentCf.slug } : {}),
         }),
       });
       const json = await res.json();
@@ -510,7 +632,7 @@ export default function CdnPage() {
     if (!folderDeleteTarget) return;
     setFolderDeleteError(null);
     const res = await request(
-      `/api/admin/cdn/folders/${folderDeleteTarget.slug}`,
+      `/api/admin/cdn/folders/${folderDeleteTarget.slug}?files=${folderDeleteFiles ? "delete" : "keep"}`,
       { method: "DELETE" },
     );
     const json = await res.json();
@@ -518,10 +640,57 @@ export default function CdnPage() {
       setFolderDeleteError(json.error);
       return;
     }
-    if (activeFolder === folderDeleteTarget.slug) setActiveFolder("all");
-    await mutateFolders();
+    // Leave a deleted folder, or one inside it, for its parent.
+    if (
+      activeFolder === folderDeleteTarget.slug ||
+      currentCf?.ancestors?.includes(folderDeleteTarget.slug)
+    )
+      setActiveFolder(folderDeleteTarget.parent || "all");
+    await Promise.all([mutateFolders(), mutate()]);
     setFolderDeleteTarget(null);
   };
+  const openFolderDelete = (folder: CdnFolderItem) => {
+    setFolderDeleteError(null);
+    setFolderDeleteFiles(false);
+    setFolderDeleteTarget(folder);
+  };
+
+  /* ── Bulk actions ───────────────────────────────────────────────────────── */
+  const runBulk = async (
+    action: "delete" | "move",
+    ids: string[],
+    folder?: string,
+  ) => {
+    setBulkError(null);
+    const res = await request("/api/admin/cdn/files/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ids, folder }),
+    });
+    const json = await res.json();
+    await Promise.all([mutate(), mutateFolders()]);
+    if (!json.success && !json.succeeded) {
+      setBulkError(json.error || t("Nothing was changed."));
+      return false;
+    }
+    if (json.failed)
+      setBulkError(t("{count} files could not be changed.", { count: json.failed }));
+    return true;
+  };
+  const handleBulkDelete = async () => {
+    if (await runBulk("delete", [...selected])) setSelected(new Set());
+    setBulkDeleteOpen(false);
+  };
+  const downloadFiles = (list: CdnFileItem[]) =>
+    list.forEach((file, index) =>
+      // Browsers drop rapid downloads, so space them out.
+      setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = `${file.url}?download=1`;
+        link.download = file.name;
+        link.click();
+      }, index * 300),
+    );
 
   /* ── File access management ───────────────────────────────────────────────── */
   const openAccessModal = async (file: CdnFileItem) => {
@@ -617,6 +786,9 @@ export default function CdnPage() {
   };
 
   /* ── Move file to folder ────────────────────────────────────────────────── */
+  const folderName = (slug: string) =>
+    customFolders.find((f) => f.slug === slug)?.name ||
+    t(BUILTIN_FOLDERS.find((f) => f.slug === slug)?.label || slug);
   const handleMoveFile = async () => {
     if (!moveConfirm) return;
     await request(`/api/admin/cdn/files/${moveConfirm.file._id}`, {
@@ -748,6 +920,190 @@ export default function CdnPage() {
     [draggingFile],
   );
 
+  /* ── View helpers ───────────────────────────────────────────────────────── */
+  const fileActions = (file: CdnFileItem) => ({
+    onMove: () => openMove(file),
+    onRename: () => {
+      setRenameFile(file);
+      setRenameName(file.name);
+    },
+    onDelete: () => setDeleteFile(file),
+    onCopy: () => handleCopy(file),
+    onShare: () => setShareFile(file),
+    onPreview: () => setPreviewFile(file),
+    onAccess: () => openAccessModal(file),
+    onEdit: isEditableTextFile(file.name, file.mimeType)
+      ? () => openTextEditor(file)
+      : undefined,
+    onDragStart: () => handleFileDragStart(file),
+    onDragEnd: handleFileDragEnd,
+  });
+  const shortDate = (value: string) =>
+    new Date(value).toLocaleDateString(dateLocale, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+
+  // Keep the path to the open folder expanded in the tree.
+  useEffect(() => {
+    const path = currentCf?.ancestors ?? [];
+    if (!path.length) return;
+    setTreeOpen((open) =>
+      path.every((slug) => open.has(slug)) ? open : new Set([...open, ...path]),
+    );
+  }, [currentCf]);
+  const toggleTree = (slug: string) =>
+    setTreeOpen((open) => {
+      const next = new Set(open);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  const renderTree = (parent: string | null): React.ReactNode => {
+    const children = customFolders
+      .filter((cf) => (cf.parent ?? null) === parent)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!children.length) return null;
+    return (
+      <ul>
+        {children.map((cf) => {
+          const hasChildren = customFolders.some((c) => c.parent === cf.slug),
+            open = treeOpen.has(cf.slug);
+          return (
+            <li key={cf.slug}>
+              <div
+                className={`tree-node ${activeFolder === cf.slug ? "on" : ""} ${dragOverFolder === cf.slug && draggingFile ? "drop" : ""}`}
+                onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
+                onDragLeave={handleFolderDragLeave}
+                onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
+              >
+                {hasChildren ? (
+                  <button
+                    className="tree-twist"
+                    onClick={() => toggleTree(cf.slug)}
+                    aria-expanded={open}
+                    aria-label={t(open ? "Collapse {name}" : "Expand {name}", {
+                      name: cf.name,
+                    })}
+                  >
+                    <Icon icon={open ? faChevronDown : faChevronRight} />
+                  </button>
+                ) : (
+                  <span className="tree-twist" />
+                )}
+                <button
+                  className="tree-label"
+                  onClick={() => setActiveFolder(cf.slug)}
+                  aria-current={activeFolder === cf.slug ? "true" : undefined}
+                >
+                  <Icon
+                    icon={activeFolder === cf.slug || open ? faFolderOpen : faFolder}
+                    className="tree-icon"
+                  />
+                  <span className="truncate">{cf.name}</span>
+                </button>
+              </div>
+              {hasChildren && open && renderTree(cf.slug)}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  /* ── Selection ──────────────────────────────────────────────────────────── */
+  const selectedFiles = sortedFiles.filter((file) => selected.has(file._id));
+  // Click toggles, Shift+click selects the range from the last pick.
+  const toggleSelect = (index: number, range: boolean) => {
+    const file = sortedFiles[index];
+    if (!file) return;
+    setSelected((current) => {
+      const next = new Set(current);
+      if (range && lastPicked.current !== null) {
+        const [from, to] = [lastPicked.current, index].sort((x, y) => x - y);
+        sortedFiles.slice(from, to + 1).forEach((f) => next.add(f._id));
+      } else if (next.has(file._id)) next.delete(file._id);
+      else next.add(file._id);
+      return next;
+    });
+    lastPicked.current = index;
+  };
+  const allSelected =
+    sortedFiles.length > 0 && selectedFiles.length === sortedFiles.length;
+  const toggleSelectAll = () =>
+    setSelected(allSelected ? new Set() : new Set(sortedFiles.map((f) => f._id)));
+  const selectProps = (file: CdnFileItem, index: number) => ({
+    selected: selected.has(file._id),
+    selecting: selected.size > 0,
+    onSelect: (range: boolean) => toggleSelect(index, range),
+  });
+
+  useEffect(() => {
+    setSelected(new Set());
+    lastPicked.current = null;
+  }, [activeFolder, owner, scope]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      // Checkboxes keep the shortcuts; text fields and dialogs own their keys.
+      const typing =
+        target.closest("textarea, select, [contenteditable], [role=dialog]") ||
+        (target instanceof HTMLInputElement && target.type !== "checkbox");
+      if (typing) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+        if (!sortedFiles.length) return;
+        event.preventDefault();
+        setSelected(new Set(sortedFiles.map((f) => f._id)));
+      } else if (event.key === "Escape" && selected.size) {
+        setSelected(new Set());
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sortedFiles, selected.size]);
+
+  useEffect(() => {
+    if (!sortMenuOpen) return;
+    const close = (event: Event) => {
+      if (
+        event instanceof KeyboardEvent
+          ? event.key === "Escape"
+          : !sortMenuRef.current?.contains(event.target as Node)
+      )
+        setSortMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [sortMenuOpen]);
+
+  const folderMenuProps = (folder: CdnFolderItem): FileMenuItem[] => [
+    {
+      label: t("Open"),
+      icon: faFolderOpen,
+      action: () => setActiveFolder(folder.slug),
+    },
+    {
+      label: t("Manage access"),
+      icon: faUsers,
+      action: () => setFolderAccess(folder),
+    },
+    {
+      label: t("Delete folder"),
+      icon: faTrash,
+      danger: true,
+      separated: true,
+      action: () => openFolderDelete(folder),
+    },
+  ];
+  const openFolderMenu = (folder: CdnFolderItem, anchor: MenuAnchor) =>
+    setFolderMenu({ folder, anchor });
+
   /* ── Share ───────────────────────────────────────────────────────────────── */
   const handleCreateShare = async () => {
     if (!shareFile) return;
@@ -808,14 +1164,17 @@ export default function CdnPage() {
         />
       )}
       <AdminModal
-        open={!!moveSelectFile}
-        title={t("Move file")}
-        onClose={() => setMoveSelectFile(null)}
+        open={moveFiles.length > 0}
+        title={moveFiles.length > 1 ? t("Move {count} files", { count: moveFiles.length }) : t("Move file")}
+        onClose={() => setMoveFiles([])}
         size="md"
       >
         <div className="space-y-4">
           <p className="break-all text-sm text-ink-dim">
-            {moveSelectFile?.name}
+            {moveFiles.length === 1
+              ? moveFiles[0].name
+              : moveFiles.map((file) => file.name).slice(0, 3).join(", ") +
+                (moveFiles.length > 3 ? "…" : "")}
           </p>
           <label className="field-label">
             {t("Destination folder")}
@@ -829,31 +1188,32 @@ export default function CdnPage() {
                   {t(folder.label)}
                 </option>
               ))}
-              {customFolders.map((folder) => (
+              {folderTree.map(({ folder, depth }) => (
                 <option key={folder.slug} value={folder.slug}>
-                  {folder.name}
+                  {"\u00a0\u00a0\u00a0".repeat(depth) + folder.name}
                 </option>
               ))}
             </select>
           </label>
           <button
             className="primary-button w-full"
-            disabled={
-              !moveSelectFile || moveDestination === moveSelectFile.folder
-            }
-            onClick={() => {
-              if (!moveSelectFile) return;
-              setMoveConfirm({
-                file: moveSelectFile,
-                targetSlug: moveDestination,
-                targetName:
-                  customFolders.find((f) => f.slug === moveDestination)?.name ||
-                  t(
-                    BUILTIN_FOLDERS.find((f) => f.slug === moveDestination)
-                      ?.label || moveDestination,
-                  ),
-              });
-              setMoveSelectFile(null);
+            disabled={moveFiles.every((file) => file.folder === moveDestination)}
+            onClick={async () => {
+              if (moveFiles.length === 1) {
+                setMoveConfirm({
+                  file: moveFiles[0],
+                  targetSlug: moveDestination,
+                  targetName: folderName(moveDestination),
+                });
+              } else if (
+                await runBulk(
+                  "move",
+                  moveFiles.map((file) => file._id),
+                  moveDestination,
+                )
+              )
+                setSelected(new Set());
+              setMoveFiles([]);
             }}
           >
             {t("Move")}
@@ -971,7 +1331,7 @@ export default function CdnPage() {
               </button>
             </div>
             <div className="space-y-0.5">
-              {customFolders.map((cf) => (
+              {topFolders.map((cf) => (
                 <div key={cf.slug} className="group relative">
                   <button
                     onClick={() => setActiveFolder(cf.slug)}
@@ -979,13 +1339,13 @@ export default function CdnPage() {
                     onDragLeave={handleFolderDragLeave}
                     onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
                     aria-current={activeFolder === cf.slug ? "true" : undefined}
-                    className={`panel-item pr-20 ${activeFolder === cf.slug ? "active" : ""} ${dragOverFolder === cf.slug && draggingFile ? "drop" : ""}`}
+                    className={`panel-item pr-20 ${activeFolder === cf.slug || currentCf?.ancestors?.[0] === cf.slug ? "active" : ""} ${dragOverFolder === cf.slug && draggingFile ? "drop" : ""}`}
                   >
                     <Icon icon={cf.allowedUsers.length > 0 ? faLock : faFolder} />
                     <span className="truncate">{cf.name}</span>
                   </button>
                   <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-ink-faint group-focus-within:opacity-0 group-hover:opacity-0">
-                    {folderCounts[cf.slug] ?? 0}
+                    {folderTotal(cf.slug)}
                   </span>
                   <div className="absolute right-1 top-1/2 flex -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                     <button
@@ -997,7 +1357,7 @@ export default function CdnPage() {
                       <Icon icon={faUsers} />
                     </button>
                     <button
-                      onClick={() => setFolderDeleteTarget(cf)}
+                      onClick={() => openFolderDelete(cf)}
                       title={t("Delete folder")}
                       aria-label={t("Delete folder")}
                       className="icon-button h-8 w-8 text-xs hover:text-rose-500"
@@ -1007,7 +1367,7 @@ export default function CdnPage() {
                   </div>
                 </div>
               ))}
-              {customFolders.length === 0 && (
+              {topFolders.length === 0 && (
                 <p className="px-3.5 py-2 text-xs text-ink-faint">{t("No folders")}</p>
               )}
             </div>
@@ -1027,61 +1387,196 @@ export default function CdnPage() {
                 <Icon icon={faAnglesRight} />
               </button>
             )}
-            {(() => {
-              const currentCf = customFolders.find((cf) => cf.slug === activeFolder);
-              const builtin = BUILTIN_FOLDERS.find((f) => f.slug === activeFolder);
-              return (
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {currentCf && (
-                      <button
-                        onClick={() => setActiveFolder("all")}
-                        aria-label={t("Go back")}
-                        title={t("Go back")}
-                        className="icon-button -ml-2"
-                      >
-                        <Icon icon={faArrowLeft} />
-                      </button>
-                    )}
-                    <h1 className="truncate text-[22px] font-medium tracking-tight">
-                      {currentCf
-                        ? currentCf.name
-                        : builtin && builtin.slug !== "all"
-                          ? t(builtin.label)
-                          : t("My drive")}
-                    </h1>
-                    {currentCf && currentCf.allowedUsers.length > 0 && (
-                      <Icon icon={faLock} className="text-xs text-ink-faint" />
+            {selected.size > 0 ? (
+              <div
+                className="select-bar"
+                role="toolbar"
+                aria-label={t("Actions on selected files")}
+              >
+                <button
+                  onClick={() => setSelected(new Set())}
+                  aria-label={t("Clear selection")}
+                  title={t("Clear selection")}
+                  className="icon-button"
+                >
+                  <Icon icon={faXmark} />
+                </button>
+                <span className="mr-auto font-semibold" aria-live="polite">
+                  {selected.size === 1
+                    ? t("1 selected")
+                    : t("{count} selected", { count: selected.size })}
+                </span>
+                <button className="select-action" onClick={() => downloadFiles(selectedFiles)}>
+                  <Icon icon={faDownload} />
+                  <span>{t("Download")}</span>
+                </button>
+                <button className="select-action" onClick={() => openMove(selectedFiles)}>
+                  <Icon icon={faArrowsAlt} />
+                  <span>{t("Move")}</span>
+                </button>
+                {selectedFiles.length === 1 && (
+                  <button
+                    className="select-action"
+                    onClick={() => openAccessModal(selectedFiles[0])}
+                  >
+                    <Icon icon={faUsers} />
+                    <span>{t("Access")}</span>
+                  </button>
+                )}
+                <button
+                  className="select-action danger"
+                  onClick={() => {
+                    setBulkError(null);
+                    setBulkDeleteOpen(true);
+                  }}
+                >
+                  <Icon icon={faTrash} />
+                  <span>{t("Delete")}</span>
+                </button>
+              </div>
+            ) : (
+              (() => {
+                const builtin = BUILTIN_FOLDERS.find((f) => f.slug === activeFolder);
+                return (
+                  <div className="min-w-0 flex-1 max-sm:basis-full">
+                    <div className="flex min-w-0 items-center gap-1">
+                      {currentCf && (
+                        <button
+                          onClick={() => setActiveFolder(currentCf.parent || "all")}
+                          aria-label={t("Up one level")}
+                          title={t("Up one level")}
+                          className="icon-button -ml-2"
+                        >
+                          <Icon icon={faArrowUp} />
+                        </button>
+                      )}
+                      {currentCf ? (
+                        <nav aria-label={t("Folder path")} className="crumbs">
+                          <ol>
+                            <li>
+                              <button
+                                onClick={() => setActiveFolder("all")}
+                              >
+                                {t("My drive")}
+                              </button>
+                            </li>
+                            {crumbs.map((cf, index) => (
+                              <li key={cf.slug}>
+                                <Icon icon={faChevronRight} className="crumb-sep" />
+                                {index === crumbs.length - 1 ? (
+                                  <h1 aria-current="page">
+                                    {cf.name}
+                                    {cf.allowedUsers.length > 0 && (
+                                      <Icon
+                                        icon={faLock}
+                                        className="ml-2 text-xs text-ink-faint"
+                                        aria-label={t("Restricted")}
+                                      />
+                                    )}
+                                  </h1>
+                                ) : (
+                                  <button
+                                    onClick={() => setActiveFolder(cf.slug)}
+                                    onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
+                                    onDragLeave={handleFolderDragLeave}
+                                    onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
+                                    className={dragOverFolder === cf.slug && draggingFile ? "drop" : ""}
+                                  >
+                                    {cf.name}
+                                  </button>
+                                )}
+                              </li>
+                            ))}
+                          </ol>
+                        </nav>
+                      ) : (
+                        <h1 className="truncate text-[22px] font-medium tracking-tight">
+                          {builtin && builtin.slug !== "all"
+                            ? t(builtin.label)
+                            : t("My drive")}
+                        </h1>
+                      )}
+                    </div>
+                    {currentCf?.description && (
+                      <p className="truncate text-sm text-ink-faint">{currentCf.description}</p>
                     )}
                   </div>
-                  {currentCf?.description && (
-                    <p className="truncate text-sm text-ink-faint">{currentCf.description}</p>
-                  )}
-                </div>
-              );
-            })()}
+                );
+              })()
+            )}
             <div className="drive-tools flex items-center gap-2">
-              <label className="flex h-9 items-center gap-2 rounded-full px-3 text-[13px] text-ink-dim hover:bg-white/5">
-                <Icon icon={faSort} className="text-xs" />
-                <span className="sr-only">{t("Sort")}</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortField)}
-                  aria-label={t("Sort")}
-                  className="cursor-pointer bg-transparent font-medium outline-none"
+              {currentCf && (
+                <button
+                  onClick={(e) => openFolderMenu(currentCf, anchorFromElement(e.currentTarget))}
+                  aria-label={t("Folder actions")}
+                  title={t("Folder actions")}
+                  className="icon-button hidden lg:grid"
                 >
-                  {SORT_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {t(o.label)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  <Icon icon={faEllipsisVertical} />
+                </button>
+              )}
+              <div className="relative" ref={sortMenuRef}>
+                <button
+                  className="sort-button"
+                  onClick={() => setSortMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={sortMenuOpen}
+                  aria-label={t("Sort by {field}", {
+                    field: t(SORT_OPTIONS.find((o) => o.key === sort.key)!.label),
+                  })}
+                >
+                  <Icon icon={faArrowDownWideShort} className="text-xs" />
+                  <span>{t(SORT_OPTIONS.find((o) => o.key === sort.key)!.label)}</span>
+                  <Icon icon={sort.dir === 1 ? faArrowUp : faArrowDown} className="text-[10px]" />
+                </button>
+                {sortMenuOpen && (
+                  <div className="menu-popover right-0 top-11 min-w-[220px]" role="menu" aria-label={t("Sort")}>
+                    {SORT_OPTIONS.map((o) => (
+                      <button
+                        key={o.key}
+                        role="menuitemradio"
+                        aria-checked={sort.key === o.key}
+                        onClick={() =>
+                          setSort({
+                            key: o.key,
+                            dir: o.key === sort.key ? sort.dir : nextSort(sort, o.key).dir,
+                          })
+                        }
+                      >
+                        <span className="w-4 text-accent">
+                          {sort.key === o.key && <Icon icon={faCheck} />}
+                        </span>
+                        {t(o.label)}
+                      </button>
+                    ))}
+                    <hr className="menu-sep" />
+                    {(
+                      [
+                        [1, "Ascending"],
+                        [-1, "Descending"],
+                      ] as const
+                    ).map(([dir, label]) => (
+                      <button
+                        key={dir}
+                        role="menuitemradio"
+                        aria-checked={sort.dir === dir}
+                        onClick={() => setSort({ key: sort.key, dir })}
+                      >
+                        <span className="w-4 text-accent">
+                          {sort.dir === dir && <Icon icon={faCheck} />}
+                        </span>
+                        {t(label)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="view-toggle" role="group" aria-label={t("View")}>
                 {(
                   [
                     ["list", faList, "List view"],
                     ["grid", faTableCellsLarge, "Grid view"],
+                    ["explorer", faFolderTree, "Explorer view"],
                     ["details", faCircleInfo, "Details view"],
                   ] as const
                 ).map(([mode, icon, label]) => (
@@ -1099,6 +1594,11 @@ export default function CdnPage() {
               </div>
             </div>
           </div>
+          {bulkError && (
+            <p role="alert" className="text-sm text-rose-400">
+              {bulkError}
+            </p>
+          )}
 
           {owner ? (
             <div className="owner-banner" role="status">
@@ -1149,11 +1649,11 @@ export default function CdnPage() {
                 <span className="text-xs opacity-75">{folderCounts[tab.slug] ?? 0}</span>
               </button>
             ))}
-            {customFolders.map((cf) => (
+            {topFolders.map((cf) => (
               <button
                 key={cf.slug}
                 onClick={() => setActiveFolder(cf.slug)}
-                className={`chip h-10 ${activeFolder === cf.slug ? "active" : ""}`}
+                className={`chip h-10 ${activeFolder === cf.slug || currentCf?.ancestors?.[0] === cf.slug ? "active" : ""}`}
               >
                 <Icon icon={cf.allowedUsers.length > 0 ? faLock : faFolder} className="text-[11px]" />
                 {cf.name}
@@ -1171,13 +1671,12 @@ export default function CdnPage() {
             </button>
           </div>
           {(() => {
-            const currentCf = customFolders.find((cf) => cf.slug === activeFolder);
             return currentCf ? (
               <div className="flex flex-wrap gap-2 lg:hidden">
                 <button onClick={() => setFolderAccess(currentCf)} className="secondary-button min-h-10 px-4">
                   <Icon icon={faUsers} /> {t("Manage folder access")}
                 </button>
-                <button onClick={() => setFolderDeleteTarget(currentCf)} className="danger-button min-h-10 px-4">
+                <button onClick={() => openFolderDelete(currentCf)} className="danger-button min-h-10 px-4">
                   <Icon icon={faTrash} /> {t("Delete folder")}
                 </button>
               </div>
@@ -1207,8 +1706,7 @@ export default function CdnPage() {
           {/* Left: compact file list */}
           <div className="max-h-56 w-full shrink-0 overflow-y-auto rounded-card lg:max-h-[70dvh] lg:w-72 bg-surface-2">
             {/* Folder items when in "all" view */}
-            {activeFolder === "all" &&
-              customFolders.map((cf) => (
+            {sortedFolders.map((cf) => (
                 <button
                   key={cf.slug}
                   onClick={() => setActiveFolder(cf.slug)}
@@ -1223,16 +1721,14 @@ export default function CdnPage() {
                       {cf.name}
                     </p>
                     <p className="text-[10px] text-ink-faint">
-                      {folderCounts[cf.slug] ?? 0} {t("files")}
+                      {itemCount(t, folderItems(cf.slug))}
                     </p>
                   </div>
                 </button>
               ))}
-            {files.length === 0 && (
+            {files.length === 0 && sortedFolders.length === 0 && (
               <p className="px-4 py-6 text-center text-xs text-ink-faint">
-                {activeFolder === "all" && customFolders.length === 0
-                  ? t("No files")
-                  : t("Empty folder")}
+                {activeFolder === "all" ? t("No files") : t("Empty folder")}
               </p>
             )}
             {sortedFiles.map((file) => (
@@ -1289,8 +1785,159 @@ export default function CdnPage() {
             )}
           </div>
         </div>
-      ) : files.length === 0 &&
-        !(activeFolder === "all" && customFolders.length > 0) ? (
+      ) : viewMode === "explorer" ? (
+        /* ── Explorer view: folder tree and sortable columns ─────────── */
+        <div className="explorer">
+          <aside className="explorer-tree" aria-label={t("Folder tree")}>
+            <ul>
+              <li>
+                <button
+                  className={`tree-node ${activeFolder === "all" ? "on" : ""}`}
+                  onClick={() => setActiveFolder("all")}
+                  aria-current={activeFolder === "all" ? "true" : undefined}
+                >
+                  <span className="tree-twist" />
+                  <Icon icon={faHardDrive} className="tree-icon" />
+                  <span className="truncate">{t("My drive")}</span>
+                </button>
+                {renderTree(null)}
+              </li>
+            </ul>
+          </aside>
+          <div className="explorer-pane">
+            <div className="explorer-bar">
+              <span className="mr-auto text-[13px] text-ink-faint">
+                {itemCount(t, sortedFolders.length + sortedFiles.length)}
+              </span>
+              {(activeFolder === "all" || currentCf) && (
+                <button
+                  className="secondary-button min-h-9 px-3.5"
+                  onClick={() => {
+                    setFolderCreateOpen(true);
+                    setFolderCreateError(null);
+                  }}
+                >
+                  <Icon icon={faFolderPlus} />
+                  {t("New folder")}
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="explorer-table">
+                <thead>
+                  <tr>
+                    <th className="col-check">
+                      <input
+                        type="checkbox"
+                        className="select-box"
+                        checked={allSelected}
+                        disabled={!sortedFiles.length}
+                        onChange={toggleSelectAll}
+                        aria-label={t("Select all")}
+                      />
+                    </th>
+                    {SORT_OPTIONS.map((o) => (
+                      <th
+                        key={o.key}
+                        className={`col-${o.key}`}
+                        aria-sort={
+                          sort.key === o.key
+                            ? sort.dir === 1
+                              ? "ascending"
+                              : "descending"
+                            : undefined
+                        }
+                      >
+                        <button onClick={() => sortBy(o.key)}>
+                          {t(o.label)}
+                          {sort.key === o.key && (
+                            <Icon icon={sort.dir === 1 ? faArrowUp : faArrowDown} />
+                          )}
+                        </button>
+                      </th>
+                    ))}
+                    <th className="col-actions">
+                      <span className="sr-only">{t("Actions")}</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedFolders.map((cf) => (
+                    <tr
+                      key={cf.slug}
+                      tabIndex={0}
+                      className={`is-folder ${dragOverFolder === cf.slug && draggingFile ? "drop" : ""}`}
+                      onDoubleClick={() => setActiveFolder(cf.slug)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") setActiveFolder(cf.slug);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        openFolderMenu(cf, { x: e.clientX, y: e.clientY });
+                      }}
+                      onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
+                      onDragLeave={handleFolderDragLeave}
+                      onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
+                    >
+                      <td className="col-check" />
+                      <td className="col-name">
+                        <button
+                          className="explorer-name"
+                          onClick={() => setActiveFolder(cf.slug)}
+                        >
+                          <Icon
+                            icon={cf.allowedUsers.length > 0 ? faLock : faFolder}
+                            className="w-5 text-accent"
+                          />
+                          <span className="truncate">{cf.name}</span>
+                        </button>
+                      </td>
+                      <td className="col-type">{t("Folder")}</td>
+                      <td className="col-size">
+                        {itemCount(t, folderItems(cf.slug))}
+                      </td>
+                      <td className="col-created">{shortDate(cf.createdAt)}</td>
+                      <td className="col-modified">
+                        {shortDate(cf.updatedAt ?? cf.createdAt)}
+                      </td>
+                      <td className="col-actions">
+                        <button
+                          onClick={(e) =>
+                            openFolderMenu(cf, anchorFromElement(e.currentTarget))
+                          }
+                          className="icon-button h-9 w-9"
+                          aria-label={t("Folder actions")}
+                          title={t("Folder actions")}
+                          aria-haspopup="menu"
+                        >
+                          <Icon icon={faEllipsisVertical} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {sortedFiles.map((file, index) => (
+                    <ExplorerRow
+                      key={file._id}
+                      file={file}
+                      {...selectProps(file, index)}
+                      {...fileActions(file)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {sortedFolders.length + sortedFiles.length === 0 ? (
+              <p className="py-16 text-center text-sm text-ink-faint">
+                {t("Empty folder")}
+              </p>
+            ) : (
+              <p className="explorer-hint">
+                {t("Double-click a folder to open it · click a column to sort, again to reverse")}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : files.length === 0 && sortedFolders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-ink-faint">
           <Icon icon={faHardDrive} className="mb-3 text-5xl" />
           <p className="text-sm">{t("No files found")}</p>
@@ -1298,17 +1945,17 @@ export default function CdnPage() {
       ) : viewMode === "grid" ? (
         /* ── Grid view ───────────────────────────────────────────────── */
         <div className="space-y-4 overflow-y-auto">
-          {/* Folder cards (only in "all" view) */}
-          {activeFolder === "all" && customFolders.length > 0 && (
+          {sortedFolders.length > 0 && (
             <div>
               <h2 className="mb-3 text-sm font-semibold">{t("Folders")}</h2>
               <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {customFolders.map((cf) => (
+                {sortedFolders.map((cf) => (
                   <FolderCard
                     key={cf.slug}
                     folder={cf}
-                    count={folderCounts[cf.slug] ?? 0}
+                    count={folderItems(cf.slug)}
                     onClick={() => setActiveFolder(cf.slug)}
+                    onMenu={(anchor) => openFolderMenu(cf, anchor)}
                     onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
                     onDragLeave={handleFolderDragLeave}
                     onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
@@ -1320,124 +1967,156 @@ export default function CdnPage() {
           )}
           {sortedFiles.length > 0 && (
             <div>
-            <h2 className="mb-3 text-sm font-semibold">{t("Files")}</h2>
-            <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-              {sortedFiles.map((file) => (
-                <GridCard
-                  key={file._id}
-                  file={file}
-                  onMove={() => openMove(file)}
-                  onRename={() => {
-                    setRenameFile(file);
-                    setRenameName(file.name);
-                  }}
-                  onDelete={() => setDeleteFile(file)}
-                  onCopy={() => handleCopy(file)}
-                  onShare={() => setShareFile(file)}
-                  onPreview={() => setPreviewFile(file)}
-                  onAccess={() => openAccessModal(file)}
-                  onEdit={
-                    isEditableTextFile(file.name, file.mimeType)
-                      ? () => openTextEditor(file)
-                      : undefined
-                  }
-                  onDragStart={() => handleFileDragStart(file)}
-                  onDragEnd={handleFileDragEnd}
+              <div className="mb-3 flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  className={`select-box ${selected.size ? "" : "select-quiet"}`}
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label={t("Select all")}
                 />
-              ))}
-            </div>
+                <h2 className="text-sm font-semibold">{t("Files")}</h2>
+                <span className="select-hint">
+                  {t("Shift+click selects a range · ⌘A all · Esc clears")}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                {sortedFiles.map((file, index) => (
+                  <GridCard
+                    key={file._id}
+                    file={file}
+                    {...selectProps(file, index)}
+                    {...fileActions(file)}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
       ) : (
         /* ── List view ───────────────────────────────────────────────── */
-        <div className="space-y-3 overflow-y-auto">
-          {/* Folder rows (only in "all" view) */}
-          {activeFolder === "all" && customFolders.length > 0 && (
-            <div>
-              <table className="drive-table w-full text-sm">
-                <tbody>
-                  {customFolders.map((cf) => (
-                    <tr
-                      key={cf.slug}
-                      onClick={() => setActiveFolder(cf.slug)}
-                      className="cursor-pointer transition-colors hover:bg-surface-2"
-                    >
-                      <td className="h-[52px] px-3" colSpan={5}>
-                        <div className="flex items-center gap-3">
-                          <Icon
-                            icon={cf.allowedUsers.length > 0 ? faLock : faFolder}
-                            className="w-6 text-[15px] text-ink-dim"
-                          />
-                          <span className="font-medium text-ink">
-                            {cf.name}
-                          </span>
-                          {cf.description && (
-                            <span className="text-xs text-ink-faint">
-                              — {cf.description}
-                            </span>
-                          )}
-                          {cf.allowedUsers.length > 0 && (
-                            <Icon
-                              icon={faLock}
-                              className="text-[10px] text-ink-faint"
-                            />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 text-right">
-                        <span className="text-xs text-ink-faint">
-                          {folderCounts[cf.slug] ?? 0} {t("files")}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {sortedFiles.length > 0 && (
-            <div className="overflow-auto">
-              <table className="drive-table w-full text-sm">
-                <thead>
-                  <tr className="text-left">
-                    <th className="px-3">{t("Name")}</th>
-                    <th className="px-3">{t("Folder")}</th>
-                    <th className="px-3">{t("Uploaded by")}</th>
-                    <th className="px-3">{t("Date")}</th>
-                    <th className="px-3">{t("Size")}</th>
-                    <th className="px-3 text-right">
-                      <span className="sr-only">{t("Actions")}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedFiles.map((file) => (
-                    <ListRow
-                      key={file._id}
-                      file={file}
-                      onMove={() => openMove(file)}
-                      onRename={() => {
-                        setRenameFile(file);
-                        setRenameName(file.name);
+        <div className="overflow-auto">
+          <table className="drive-table w-full text-sm">
+            <thead>
+              <tr className="text-left">
+                <th className="col-check px-2">
+                  <input
+                    type="checkbox"
+                    className="select-box"
+                    checked={allSelected}
+                    disabled={!sortedFiles.length}
+                    onChange={toggleSelectAll}
+                    aria-label={t("Select all")}
+                  />
+                </th>
+                {(
+                  [
+                    ["name", "Name"],
+                    [null, "Folder"],
+                    [null, "Uploaded by"],
+                    ["created", "Date"],
+                    ["size", "Size"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <th
+                    key={label}
+                    className="px-3"
+                    aria-sort={
+                      key && sort.key === key
+                        ? sort.dir === 1
+                          ? "ascending"
+                          : "descending"
+                        : undefined
+                    }
+                  >
+                    {key ? (
+                      <button className="th-sort" onClick={() => sortBy(key)}>
+                        {t(label)}
+                        {sort.key === key && (
+                          <Icon icon={sort.dir === 1 ? faArrowUp : faArrowDown} />
+                        )}
+                      </button>
+                    ) : (
+                      t(label)
+                    )}
+                  </th>
+                ))}
+                <th className="px-3 text-right">
+                  <span className="sr-only">{t("Actions")}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedFolders.map((cf) => (
+                <tr
+                  key={cf.slug}
+                  onClick={() => setActiveFolder(cf.slug)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openFolderMenu(cf, { x: e.clientX, y: e.clientY });
+                  }}
+                  onDragOver={(e) => handleFolderDragOver(e, cf.slug)}
+                  onDragLeave={handleFolderDragLeave}
+                  onDrop={(e) => handleFolderDrop(e, cf.slug, cf.name)}
+                  className={`group cursor-pointer transition-colors hover:bg-surface-2 ${dragOverFolder === cf.slug && draggingFile ? "drop" : ""}`}
+                >
+                  <td className="col-check px-2" />
+                  <td className="h-[52px] px-3" colSpan={4}>
+                    <button
+                      className="flex min-w-0 items-center gap-3 text-left"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveFolder(cf.slug);
                       }}
-                      onDelete={() => setDeleteFile(file)}
-                      onCopy={() => handleCopy(file)}
-                      onShare={() => setShareFile(file)}
-                      onPreview={() => setPreviewFile(file)}
-                      onAccess={() => openAccessModal(file)}
-                      onEdit={
-                        isEditableTextFile(file.name, file.mimeType)
-                          ? () => openTextEditor(file)
-                          : undefined
-                      }
-                      onDragStart={() => handleFileDragStart(file)}
-                      onDragEnd={handleFileDragEnd}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                    >
+                      <Icon
+                        icon={cf.allowedUsers.length > 0 ? faLock : faFolder}
+                        className="w-8 text-[15px] text-accent"
+                      />
+                      <span className="truncate font-medium text-ink">{cf.name}</span>
+                      {cf.description && (
+                        <span className="truncate text-xs text-ink-faint">
+                          — {cf.description}
+                        </span>
+                      )}
+                    </button>
+                  </td>
+                  <td className="col-meta whitespace-nowrap px-3 text-[13px] text-ink-dim">
+                    {itemCount(t, folderItems(cf.slug))}
+                  </td>
+                  <td className="px-2">
+                    <div className="flex justify-end">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openFolderMenu(cf, anchorFromElement(e.currentTarget));
+                        }}
+                        className="icon-button h-10 w-10"
+                        aria-label={t("Folder actions")}
+                        title={t("Folder actions")}
+                        aria-haspopup="menu"
+                      >
+                        <Icon icon={faEllipsisVertical} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {sortedFiles.map((file, index) => (
+                <ListRow
+                  key={file._id}
+                  file={file}
+                  folderName={folderName(file.folder)}
+                  {...selectProps(file, index)}
+                  {...fileActions(file)}
+                />
+              ))}
+            </tbody>
+          </table>
+          {sortedFiles.length > 0 && (
+            <p className="select-hint mt-3 px-3">
+              {t("Shift+click selects a range · ⌘A all · Esc clears")}
+            </p>
           )}
         </div>
       )}
@@ -1875,10 +2554,16 @@ export default function CdnPage() {
       >
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs text-ink-dim">
+            {currentCf && (
+              <p className="mb-3 text-[13px] text-ink-faint">
+                {t("Inside «{name}»", { name: currentCf.name })}
+              </p>
+            )}
+            <label htmlFor="folder-create-name" className="mb-1 block text-xs text-ink-dim">
               {t("Folder name *")}
             </label>
             <input
+              id="folder-create-name"
               value={folderCreateName}
               onChange={(e) => setFolderCreateName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleFolderCreate()}
@@ -1900,10 +2585,11 @@ export default function CdnPage() {
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-ink-dim">
+            <label htmlFor="folder-create-desc" className="mb-1 block text-xs text-ink-dim">
               {t("Description (optional)")}
             </label>
             <input
+              id="folder-create-desc"
               value={folderCreateDesc}
               onChange={(e) => setFolderCreateDesc(e.target.value)}
               placeholder={t("What is this folder for?")}
@@ -2058,11 +2744,40 @@ export default function CdnPage() {
       >
         {folderDeleteTarget && (
           <div className="space-y-4">
-            <p className="text-sm text-ink-dim">
-              {t(
-                "This folder will be deleted. Move or delete its files first.",
-              )}
-            </p>
+            {(() => {
+              const fileCount = folderTotal(folderDeleteTarget.slug),
+                subCount = customFolders.filter((cf) =>
+                  cf.ancestors?.includes(folderDeleteTarget.slug),
+                ).length;
+              return (
+                <>
+                  <p className="text-sm text-ink-dim">
+                    {subCount
+                      ? t("The folder and its {count} subfolders will be deleted.", {
+                          count: subCount,
+                        })
+                      : t("The folder will be deleted.")}{" "}
+                    {fileCount > 0 &&
+                      !folderDeleteFiles &&
+                      t("Its files go back to their automatic category.")}
+                  </p>
+                  {fileCount > 0 && (
+                    <label className="del-opt">
+                      <input
+                        type="checkbox"
+                        className="select-box"
+                        checked={folderDeleteFiles}
+                        onChange={(e) => setFolderDeleteFiles(e.target.checked)}
+                      />
+                      <span>
+                        <b>{t("Delete its {count} files too", { count: fileCount })}</b>
+                        <span>{t("They cannot be recovered.")}</span>
+                      </span>
+                    </label>
+                  )}
+                </>
+              );
+            })()}
             {folderDeleteError && (
               <p className="text-sm text-rose-400">{t(folderDeleteError)}</p>
             )}
@@ -2080,7 +2795,7 @@ export default function CdnPage() {
                 onClick={handleFolderDelete}
                 className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-accent-on hover:bg-red-400 transition-colors"
               >
-                {t("Delete")}
+                {t(folderDeleteFiles ? "Delete folder and files" : "Delete folder")}
               </button>
             </div>
           </div>
@@ -2100,6 +2815,32 @@ export default function CdnPage() {
         onCancel={() => setDeleteFile(null)}
         dangerous
       />
+
+      {/* ── Bulk delete confirm ──────────────────────────────────────────── */}
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={
+          selected.size === 1
+            ? t("Delete file")
+            : t("Delete {count} files", { count: selected.size })
+        }
+        description={t(
+          "The selected files and their sharing links will be deleted permanently.",
+        )}
+        confirmLabel={t("Delete")}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setBulkDeleteOpen(false)}
+        dangerous
+      />
+
+      {folderMenu && (
+        <FileMenu
+          anchor={folderMenu.anchor}
+          label={folderMenu.folder.name}
+          items={folderMenuProps(folderMenu.folder)}
+          onClose={() => setFolderMenu(null)}
+        />
+      )}
 
       {/* ── Move confirm dialog ───────────────────────────────────────────── */}
       <ConfirmDialog
@@ -2159,6 +2900,37 @@ export default function CdnPage() {
   );
 }
 
+/* ─── Selection ──────────────────────────────────────────────────────────── */
+interface Selectable {
+  selected?: boolean;
+  selecting?: boolean;
+  onSelect?: (range: boolean) => void;
+}
+
+function SelectBox({
+  name,
+  selected,
+  selecting,
+  onSelect,
+}: Selectable & { name: string }) {
+  const { t } = useI18n();
+  if (!onSelect) return null;
+  return (
+    <input
+      type="checkbox"
+      className={`select-box ${selected || selecting ? "" : "select-quiet"}`}
+      checked={!!selected}
+      onChange={() => {}}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect(e.shiftKey);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      aria-label={t("Select {name}", { name })}
+    />
+  );
+}
+
 /* ─── File context menu ──────────────────────────────────────────────────── */
 function fileMenuProps(
   file: CdnFileItem,
@@ -2199,6 +2971,9 @@ function fileMenuProps(
 /* ─── Grid card ───────────────────────────────────────────────────────────── */
 function GridCard({
   file,
+  selected,
+  selecting,
+  onSelect,
   onMove,
   onRename,
   onDelete,
@@ -2209,7 +2984,7 @@ function GridCard({
   onEdit,
   onDragStart,
   onDragEnd,
-}: {
+}: Selectable & {
   file: CdnFileItem;
   onMove: () => void;
   onRename: () => void;
@@ -2229,7 +3004,7 @@ function GridCard({
   return (
     <>
       <div
-        className="file-card group cursor-grab active:cursor-grabbing"
+        className={`file-card group cursor-grab active:cursor-grabbing ${selected ? "is-selected" : ""}`}
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
@@ -2240,7 +3015,19 @@ function GridCard({
         }}
       >
         <div className="flex h-12 min-w-0 items-center gap-3 pl-2">
-          <FileTypeIcon mimeType={file.mimeType} className="shrink-0 text-[15px]" />
+          {onSelect ? (
+            <span className="select-slot">
+              <FileTypeIcon mimeType={file.mimeType} className="text-[15px]" />
+              <SelectBox
+                name={file.name}
+                selected={selected}
+                selecting={selecting}
+                onSelect={onSelect}
+              />
+            </span>
+          ) : (
+            <FileTypeIcon mimeType={file.mimeType} className="shrink-0 text-[15px]" />
+          )}
           <p className="min-w-0 flex-1 truncate text-sm font-medium" title={file.name}>
             {file.name}
           </p>
@@ -2258,7 +3045,9 @@ function GridCard({
         <div className="relative aspect-[16/11] overflow-hidden rounded-lg bg-sheet">
           <button
             className="h-full w-full"
-            onClick={onPreview}
+            onClick={(e) =>
+              selecting && onSelect ? onSelect(e.shiftKey) : onPreview()
+            }
             aria-label={t("Preview")}
           >
             <FileThumbnail file={file} />
@@ -2318,6 +3107,7 @@ function FolderCard({
   folder,
   count,
   onClick,
+  onMenu,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -2326,32 +3116,50 @@ function FolderCard({
   folder: CdnFolderItem;
   count: number;
   onClick: () => void;
+  onMenu?: (anchor: MenuAnchor) => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDragLeave?: () => void;
   onDrop?: (e: React.DragEvent) => void;
   dragOver?: boolean;
 }) {
-  const { t, dateLocale } = useI18n();
+  const { t } = useI18n();
 
   return (
-    <button
-      onClick={onClick}
+    <div
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
+      onContextMenu={(e) => {
+        if (!onMenu) return;
+        e.preventDefault();
+        onMenu({ x: e.clientX, y: e.clientY });
+      }}
       className={`folder-card ${dragOver ? "drop" : ""}`}
     >
-      <Icon
-        icon={folder.allowedUsers.length > 0 ? faLock : faFolder}
-        className="shrink-0 text-[17px] text-ink-dim"
-      />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium" title={folder.name}>
-        {folder.name}
-      </span>
-      <span className="text-xs text-ink-faint">
-        {count} {t(count === 1 ? "file" : "files")}
-      </span>
-    </button>
+      <button onClick={onClick} className="folder-card-open">
+        <Icon
+          icon={folder.allowedUsers.length > 0 ? faLock : faFolder}
+          className="shrink-0 text-[17px] text-accent"
+        />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium" title={folder.name}>
+          {folder.name}
+        </span>
+        <span className="text-xs text-ink-faint">
+          {itemCount(t, count)}
+        </span>
+      </button>
+      {onMenu && (
+        <button
+          onClick={(e) => onMenu(anchorFromElement(e.currentTarget))}
+          className="icon-button -mr-1 h-9 w-9 shrink-0"
+          aria-label={t("Folder actions")}
+          title={t("Folder actions")}
+          aria-haspopup="menu"
+        >
+          <Icon icon={faEllipsisVertical} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -2514,9 +3322,12 @@ function DetailsPane({
   );
 }
 
-/* ─── List row ────────────────────────────────────────────────────────────── */
-function ListRow({
+/* ─── Explorer row ───────────────────────────────────────────────────────── */
+function ExplorerRow({
   file,
+  selected,
+  selecting,
+  onSelect,
   onMove,
   onRename,
   onDelete,
@@ -2527,8 +3338,119 @@ function ListRow({
   onEdit,
   onDragStart,
   onDragEnd,
-}: {
+}: Selectable & {
   file: CdnFileItem;
+  onMove: () => void;
+  onRename: () => void;
+  onDelete: () => void;
+  onCopy: () => void;
+  onShare: () => void;
+  onPreview: () => void;
+  onAccess: () => void;
+  onEdit?: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
+  const { t, dateLocale } = useI18n();
+  const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  const date = (value: string) =>
+    new Date(value).toLocaleDateString(dateLocale, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+
+  return (
+    <tr
+      tabIndex={0}
+      className={selected ? "is-selected" : undefined}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onClick={(e) => {
+        if (selecting && onSelect) onSelect(e.shiftKey);
+      }}
+      onDoubleClick={onPreview}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter") onPreview();
+        if (e.key === " " && onSelect) {
+          e.preventDefault();
+          onSelect(e.shiftKey);
+        }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+    >
+      <td className="col-check">
+        <SelectBox
+          name={file.name}
+          selected={selected}
+          selecting={selecting}
+          onSelect={onSelect}
+        />
+      </td>
+      <td className="col-name">
+        <span className="explorer-name">
+          <FileTypeIcon mimeType={file.mimeType} className="w-5 shrink-0 text-[14px]" />
+          <span className="truncate" title={file.name}>
+            {file.name}
+          </span>
+        </span>
+      </td>
+      <td className="col-type uppercase">{fileType(file)}</td>
+      <td className="col-size">{formatBytes(file.size)}</td>
+      <td className="col-created">{date(file.createdAt)}</td>
+      <td className="col-modified">{date(file.updatedAt ?? file.createdAt)}</td>
+      <td className="col-actions">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenu(anchorFromElement(e.currentTarget));
+          }}
+          className="icon-button h-9 w-9"
+          aria-label={t("File actions")}
+          title={t("File actions")}
+          aria-haspopup="menu"
+          aria-expanded={!!menu}
+        >
+          <Icon icon={faEllipsisVertical} />
+        </button>
+        {menu && (
+          <FileMenu
+            anchor={menu}
+            label={file.name}
+            onClose={() => setMenu(null)}
+            {...fileMenuProps(file, { onPreview, onEdit, onShare, onAccess, onRename, onMove, onCopy, onDelete })}
+          />
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/* ─── List row ────────────────────────────────────────────────────────────── */
+function ListRow({
+  file,
+  folderName,
+  selected,
+  selecting,
+  onSelect,
+  onMove,
+  onRename,
+  onDelete,
+  onCopy,
+  onShare,
+  onPreview,
+  onAccess,
+  onEdit,
+  onDragStart,
+  onDragEnd,
+}: Selectable & {
+  file: CdnFileItem;
+  folderName?: string;
   onMove: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -2545,7 +3467,7 @@ function ListRow({
 
   return (
     <tr
-      className="group cursor-grab transition-colors hover:bg-surface-2 active:cursor-grabbing"
+      className={`group cursor-grab transition-colors hover:bg-surface-2 active:cursor-grabbing ${selected ? "is-selected" : ""}`}
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -2554,7 +3476,18 @@ function ListRow({
         setMenu({ x: e.clientX, y: e.clientY });
       }}
       onDoubleClick={onPreview}
+      onClick={(e) => {
+        if (selecting && onSelect) onSelect(e.shiftKey);
+      }}
     >
+      <td className="col-check px-2">
+        <SelectBox
+          name={file.name}
+          selected={selected}
+          selecting={selecting}
+          onSelect={onSelect}
+        />
+      </td>
       <td className="h-[52px] px-3">
         <div className="flex min-w-0 items-center gap-3.5">
           <div className="grid h-8 w-8 flex-shrink-0 place-items-center overflow-hidden rounded-md">
@@ -2571,7 +3504,7 @@ function ListRow({
         </div>
       </td>
       <td className="col-meta px-3">
-        <span className="text-[13px] capitalize text-ink-dim">{file.folder}</span>
+        <span className="text-[13px] text-ink-dim">{folderName ?? file.folder}</span>
       </td>
       <td className="col-meta px-3 text-[13px] text-ink-dim">
         {file.uploadedByUsername}

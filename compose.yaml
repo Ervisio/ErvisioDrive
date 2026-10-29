@@ -21,6 +21,11 @@ services:
   mongo:
     image: mongo:8.0
     restart: unless-stopped
+    # Linux 6.19+ hosts: let glibc own rseq so tcmalloc skips the per-CPU
+    # caches MongoDB refuses to start with (SERVER-121912). Remove once a
+    # fixed 8.0 release is the default.
+    environment:
+      GLIBC_TUNABLES: glibc.pthread.rseq=1
     volumes: [mongo_data:/data/db]
     networks: [private]
     healthcheck:

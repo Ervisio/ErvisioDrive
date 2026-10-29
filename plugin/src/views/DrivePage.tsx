@@ -1,7 +1,8 @@
 /**
- * The ErvisioDrive page in Ervisio (round 008, variant A): a header with the drive's state, an inner menu like
- * plugin-docker's, and one section at a time (overview, address and Caddy, limits, people and quotas). With no drive
- * answering, the connection steps of round 010 A (Connect.tsx): start a stopped drive or install one.
+ * The ErvisioDrive page in Ervisio (round 008, variant A): a header with the drive's state, the update strip of round
+ * 014 A (Update.tsx), an inner menu like plugin-docker's, and one section at a time (overview, address and Caddy,
+ * limits, people and quotas). With no drive answering, the connection steps of round 010 A (Connect.tsx): start a
+ * stopped drive or install one; an update still rebuilding the drive is shown above them.
  */
 import { useState } from 'react';
 import { getSdk } from '../sdk';
@@ -11,6 +12,7 @@ import { Address } from './Address';
 import { Connect } from './Connect';
 import { Limits } from './Limits';
 import { Overview } from './Overview';
+import { Update } from './Update';
 import { People } from './People';
 import { errText, hostOf, isAdminError, isMissingError, t, useLoad } from './util';
 
@@ -35,7 +37,15 @@ export function DrivePage() {
       </div>
     );
   }
-  if (!st.data) return <div className="dv-root hue-file"><Blocked error={st.error} onRetry={st.reload} /></div>;
+  if (!st.data) {
+    return (
+      <div className="dv-root hue-file">
+        {/* The plugin's own version: only a running or failed update shows, never the offer. */}
+        <Update version={getSdk().plugin.version} onDone={st.reload} />
+        <Blocked error={st.error} onRetry={st.reload} />
+      </div>
+    );
+  }
 
   const s = st.data;
   const host = hostOf(s.publicUrl);
@@ -59,6 +69,7 @@ export function DrivePage() {
           <Button variant="primary" icon="externallink" onClick={() => getSdk().openExternal(s.publicUrl!)}>{t('drive.open')}</Button>
         )}
       </header>
+      <Update version={s.version} onDone={st.reload} />
 
       <div className="dv-inner">
         <nav className="dv-nav" aria-label={t('nav.label')}>

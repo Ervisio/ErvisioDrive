@@ -100,6 +100,24 @@
 .dv-w-n b { color: var(--ink); font-weight: 800; }
 .dv-w .ui-btn { align-self: flex-start; }
 
+/* Update strip (round 014 A): info while offered, --sunk while running, ok/warn at the end. */
+.dv-up { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--info-s); border-radius: 16px; padding: 12px 14px; margin-bottom: 14px; }
+.dv-up-ic { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--surface); color: var(--info); flex-shrink: 0; }
+.dv-up-t { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 2px; }
+.dv-up-t b { font-size: 14px; color: var(--ink); }
+.dv-up-t span { font-size: 12.5px; color: var(--ink2); }
+.dv-up.is-run { background: var(--sunk); flex-direction: column; align-items: stretch; }
+.dv-up-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dv-up.is-run:not(.is-err) .dv-up-ic .ui-icon { animation: dv-spin 1.1s linear infinite; }
+.dv-up.is-ok { background: var(--ok-s); } .dv-up.is-ok .dv-up-ic { color: var(--ok); }
+.dv-up.is-err { background: var(--warn-s); } .dv-up.is-err .dv-up-ic { color: var(--warn); }
+.dv-up .dv-wz-log { max-height: 170px; }
+.dv-up-bar { height: 6px; border-radius: 3px; background: var(--surface); overflow: hidden; }
+.dv-up-bar span { display: block; width: 35%; height: 100%; border-radius: 3px; background: var(--h-file, var(--info)); animation: dv-slide 1.6s ease-in-out infinite; }
+@keyframes dv-spin { to { transform: rotate(360deg); } }
+@keyframes dv-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .dv-up-ic .ui-icon, .dv-up-bar span { animation: none !important; } }
+
 @media (max-width: 1100px) { .dv-grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {
   .dv-inner { grid-template-columns: minmax(0, 1fr); gap: 12px; }
@@ -108,7 +126,7 @@
   .dv-nav-lab { display: none; }
   .dv-root .dv-nav-it { width: auto; flex: none; white-space: nowrap; background: var(--sunk); padding: 0 12px 0 6px; }
   .dv-ph h1 { font-size: 22px; }
-  .dv-ph .ui-btn { width: 100%; justify-content: center; }
+  .dv-ph .ui-btn, .dv-up-row .ui-btn, .dv-up > .ui-btn { width: 100%; justify-content: center; }
   .dv-grid3, .dv-wz-form { grid-template-columns: minmax(0, 1fr); }
   .dv-wz-card .dv-acts .ui-btn { flex: 1; justify-content: center; }
   .dv-set { flex-wrap: wrap; }

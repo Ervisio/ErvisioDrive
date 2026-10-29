@@ -62,6 +62,8 @@ jobs:
             JSON.parse(out); fs.writeFileSync(p, out);
           ' "$new"
           npm version "$new" --no-git-tag-version --allow-same-version >/dev/null
+          # The drive reports its package.json version, which the plugin compares with its own to offer updates.
+          (cd .. && npm version "$new" --no-git-tag-version --allow-same-version >/dev/null)
           body="$RUNNER_TEMP/section.md"
           if [ -n "$NOTES" ]; then
             printf '%s\n' "$NOTES" > "$body"

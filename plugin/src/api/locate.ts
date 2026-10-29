@@ -4,7 +4,7 @@
  * The plugin then reaches the API with a small Node script run in the container (docker exec), which goes through the
  * same socket proxy, so the proxy still adds its secret and only /api/plugin is reachable.
  *
- *   const found = await locate();             // { docker: true, app: {id, name, running, project} } or app null
+ *   const found = await locate();             // { docker: true, app: {id, name, running, project, workingDir} } or app null
  *   const r = await viaContainer(found.app.id, 'GET', '/api/plugin/status');
  */
 import type { PluginError } from '../sdk';
@@ -17,6 +17,8 @@ export interface DriveContainer {
   running: boolean;
   /** Compose project (the folder the drive was installed in), '' when unknown. */
   project: string;
+  /** Host folder the Compose project was started from (its compose.yaml), '' when unknown. */
+  workingDir: string;
 }
 
 export interface Located {
@@ -35,6 +37,7 @@ export interface Answer {
 
 const PROJECT = 'com.docker.compose.project';
 const SERVICE = 'com.docker.compose.service';
+const WORKING_DIR = 'com.docker.compose.project.working_dir';
 
 /** Errors of the docker API that mean "no Docker here" rather than "Docker refused". */
 function noDocker(e: unknown): boolean {
@@ -62,7 +65,13 @@ export async function locate(): Promise<Located> {
     if (!(info.Config.Env ?? []).some((v) => v.startsWith('PLUGIN_SOCKET='))) continue;
     return {
       docker: true,
-      app: { id: c.Id, name: info.Name.replace(/^\//, ''), running: info.State.Running, project: c.Labels?.[PROJECT] ?? '' },
+      app: {
+        id: c.Id,
+        name: info.Name.replace(/^\//, ''),
+        running: info.State.Running,
+        project: c.Labels?.[PROJECT] ?? '',
+        workingDir: c.Labels?.[WORKING_DIR] ?? '',
+      },
     };
   }
   return { docker: true, app: null };

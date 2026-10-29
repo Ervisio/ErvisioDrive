@@ -65,6 +65,12 @@ Pannello estendibile/ritraibile: ritratto mostra solo icone con tooltip, esteso 
 - Il menu "Ordina" in testata vale per tutte le viste: nome, tipo, dimensione, creazione, modifica, crescente/decrescente.
 - <760px l'albero sparisce; <640px restano solo Nome e Dimensione e il titolo della cartella va su una riga intera sopra gli strumenti.
 
+## Aggiornamento dal plugin (round 014 A "Striscia sotto l'intestazione")
+
+- Nella pagina del plugin, tra l'intestazione e le sezioni, così si vede da ogni sezione (`.dv-up`, `plugin/src/views/Update.tsx`). Appare quando il drive è più vecchio del plugin (versione assente o 1.x contano come più vecchie).
+- Offerta: tinta info-soft, icona su `--surface`, titolo "È disponibile ErvisioDrive X", pulsante primario Aggiorna. In corso: `--sunk`, icona che ruota, registro dell'unità e barra indeterminata. Fine: ok-soft con Chiudi, solo se la pagina ha visto l'aggiornamento finire. Errore: warn-soft con Riprova e registro.
+- Se il drive è spento perché si sta ricostruendo, la striscia resta sopra la procedura di connessione. Con `prefers-reduced-motion` icona e barra stanno ferme.
+
 ## Responsive
 
 - **≥1024px**: rail + pannello + foglio.

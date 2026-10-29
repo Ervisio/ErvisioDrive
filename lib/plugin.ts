@@ -16,6 +16,7 @@ import { storageRoot } from "@/lib/storage";
 import { encryptionEnabled } from "@/lib/crypto-store";
 import FileModel from "@/models/CdnFile";
 import Member from "@/models/Member";
+import pkg from "@/package.json";
 
 export const PLUGIN_HEADER = "x-ervisio-plugin";
 const actor: Actor = { id: "ervisio-plugin", email: "", name: "Ervisio", role: "admin" };
@@ -60,7 +61,7 @@ async function status() {
   return json({
     success: true,
     data: {
-      version: process.env.npm_package_version || process.env.APP_VERSION || null,
+      version: pkg.version || null,
       publicUrl: process.env.NEXTAUTH_URL || null,
       trustProxy: process.env.TRUST_PROXY === "true",
       encryption: encryptionEnabled(),

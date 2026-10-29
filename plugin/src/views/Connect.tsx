@@ -27,7 +27,7 @@ function Steps({ at, done }: { at: number; done: number }) {
   );
 }
 
-function Log({ lines }: { lines: string[] }) {
+export function Log({ lines }: { lines: string[] }) {
   const ref = useRef<HTMLPreElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
@@ -42,7 +42,7 @@ function Log({ lines }: { lines: string[] }) {
   );
 }
 
-const adminDeclined = (e: unknown) => (e as Partial<PluginError>)?.code === 'needs_admin';
+export const adminDeclined = (e: unknown) => (e as Partial<PluginError>)?.code === 'needs_admin';
 
 export function Connect({ error, onRetry }: { error: unknown; onRetry(): void }) {
   const located = error instanceof drive.DriveError ? error.located : undefined;
@@ -55,7 +55,7 @@ export function Connect({ error, onRetry }: { error: unknown; onRetry(): void })
   // An installation started earlier (this session or not) is shown where it is.
   useEffect(() => {
     let live = true;
-    install.progress().then((p) => live && p.state !== 'idle' && setProg(p), () => {});
+    install.progress().then((p) => live && p.state !== 'idle' && p.kind === 'install' && setProg(p), () => {});
     return () => {
       live = false;
     };
@@ -97,7 +97,7 @@ export function Connect({ error, onRetry }: { error: unknown; onRetry(): void })
     setBusy(true);
     try {
       await install.start({ email: email.trim(), port: portN });
-      setProg({ state: 'running', log: [], link: null });
+      setProg({ state: 'running', log: [], link: null, kind: 'install' });
     } catch (e) {
       toast.err(t('cn.startInstallFailed'), adminDeclined(e) ? t('admin.text') : errText(e));
     } finally {

@@ -1,16 +1,18 @@
 /**
  * Typed client of ErvisioDrive's administration API, reached through the unix socket the drive container opens on the
- * host (/run/ervisio-drive/api.sock, capabilities.http "drive"). The socket proxy in the container adds its own secret,
- * so no auth header is sent. Every call resolves with the `data` of the drive's {success, data} answer or throws a
- * DriveError.
+ * host (/run/ervisio-drive/api.sock, capabilities.http "drive"). A drive installed without the Ervisio integration has
+ * its socket elsewhere on the host: then the plugin finds its container through Docker and sends the same requests
+ * from inside it (locate.ts). The socket proxy in the container adds its own secret, so no auth header is sent. Every
+ * call resolves with the `data` of the drive's {success, data} answer or throws a DriveError.
  *
  *   if (await drive.available()) { const s = await drive.status(); ... }
  *
  * The socket belongs to the container's user (0660): only root can open it, so the API is declared `admin` and the
  * first call of a session from a non-root account brings up Ervisio's unlock dialog.
  */
-import { getSdk, type HttpResponse, type PluginError, type Query } from '../sdk';
+import { getSdk, type PluginError, type Query } from '../sdk';
 import type { Upstream } from './caddy-core';
+import { ContainerError, locate, viaContainer, type Answer, type Located } from './locate';
 
 export type { Upstream } from './caddy-core';
 
@@ -20,7 +22,8 @@ const BASE = '/api/plugin';
 /* ---------- errors ---------- */
 
 /**
- * - `unavailable`: no drive answers on the socket (not installed with the Ervisio integration, stopped, starting);
+ * - `unavailable`: no drive answers, neither on the socket nor in a Docker container (not installed, stopped, starting);
+ *   `located` tells which;
  * - `admin`: administrator rights are needed and the user did not unlock them;
  * - `forbidden`: Ervisio refused the call (plugin disabled, socket permission denied);
  * - `invalid`: the drive refused the input (HTTP 400/409/413) or Ervisio refused the request shape;
@@ -33,11 +36,14 @@ export class DriveError extends Error {
   kind: DriveErrorKind;
   /** HTTP status from the drive, 0 when the request never reached it. */
   status: number;
-  constructor(kind: DriveErrorKind, message: string, status = 0) {
+  /** With `unavailable`: what Docker shows (no Docker, no drive container, or a stopped one). */
+  located?: Located;
+  constructor(kind: DriveErrorKind, message: string, status = 0, located?: Located) {
     super(message);
     this.name = 'DriveError';
     this.kind = kind;
     this.status = status;
+    this.located = located;
   }
 }
 
@@ -60,7 +66,7 @@ function fromPluginError(e: unknown): DriveError {
   }
 }
 
-function fromResponse(r: HttpResponse): DriveError {
+function fromResponse(r: Answer): DriveError {
   let message = '';
   try {
     message = (r.json() as { error?: string }).error ?? '';
@@ -77,19 +83,70 @@ function fromResponse(r: HttpResponse): DriveError {
 }
 
 /** The full JSON answer (for the few endpoints that put fields next to `data`). */
-async function call<T = Record<string, unknown>>(method: string, path: string, opts: { query?: Query; body?: object } = {}): Promise<T> {
-  let r: HttpResponse;
-  try {
-    r = await getSdk().api.http(NAME, {
-      method,
-      path: `${BASE}${path}`,
-      query: opts.query,
-      headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
-      body: opts.body,
-    });
-  } catch (e) {
-    throw fromPluginError(e);
+/* ---------- transport ---------- */
+
+/** The container the drive answered from last time; undefined while the host socket works (or nothing was tried). */
+let container: string | undefined;
+
+/** Forget the route, for example after the drive was started or installed. */
+export const resetRoute = () => {
+  container = undefined;
+};
+
+function queryString(query?: Query): string {
+  if (!query) return '';
+  if (typeof query === 'string') return query ? `?${query.replace(/^\?/, '')}` : '';
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) for (const one of Array.isArray(v) ? v : [v]) q.append(k, String(one));
+  const text = q.toString();
+  return text ? `?${text}` : '';
+}
+
+/** Through the container; looks for it again once when it was replaced or stopped. */
+async function sendDocker(method: string, path: string, opts: { query?: Query; body?: object }): Promise<Answer> {
+  for (let attempt = 0; ; attempt++) {
+    if (!container) {
+      let found: Located;
+      try {
+        found = await locate();
+      } catch (e) {
+        throw fromPluginError(e);
+      }
+      if (!found.app?.running) throw new DriveError('unavailable', 'ErvisioDrive does not answer', 0, found);
+      container = found.app.id;
+    }
+    try {
+      return await viaContainer(container, method, `${path}${queryString(opts.query)}`, opts.body);
+    } catch (e) {
+      if (!(e instanceof ContainerError)) throw fromPluginError(e);
+      container = undefined;
+      if (!e.lost) throw new DriveError('failed', e.message);
+      if (attempt > 0) throw new DriveError('unavailable', e.message);
+    }
   }
+}
+
+async function send(method: string, path: string, opts: { query?: Query; body?: object }): Promise<Answer> {
+  if (!container) {
+    try {
+      return await getSdk().api.http(NAME, {
+        method,
+        path,
+        query: opts.query,
+        headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+        body: opts.body,
+      });
+    } catch (e) {
+      const err = fromPluginError(e);
+      // No socket on the host: maybe a drive in Docker without the Ervisio integration.
+      if (err.kind !== 'unavailable') throw err;
+    }
+  }
+  return sendDocker(method, path, opts);
+}
+
+async function call<T = Record<string, unknown>>(method: string, path: string, opts: { query?: Query; body?: object } = {}): Promise<T> {
+  const r = await send(method, `${BASE}${path}`, opts);
   if (r.status >= 400) throw fromResponse(r);
   let out: { success?: boolean; error?: string } & Record<string, unknown>;
   try {

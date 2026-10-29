@@ -10,7 +10,7 @@ export function UsageWidget() {
 
   if (!st.data) {
     if (st.loading) return <p className="dv-w-muted">{t('w.loading')}</p>;
-    return <p className="dv-w-muted">{isMissingError(st.error) ? t('missing.title') : errText(st.error)}</p>;
+    return <p className="dv-w-muted">{isMissingError(st.error) ? t('w.missing') : errText(st.error)}</p>;
   }
   const { usedBytes, quotaBytes } = st.data.storage;
   const pct = quotaBytes ? Math.min(100, (usedBytes / quotaBytes) * 100) : undefined;

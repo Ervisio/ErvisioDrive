@@ -33,8 +33,6 @@
 .dv-fig-l { font-size: 12.5px; color: var(--ink2); }
 .dv-fig b { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
 .dv-fig-s { font-size: 12.5px; color: var(--ink2); }
-.dv-missing { align-items: center; }
-.dv-missing .dv-snip { align-self: stretch; }
 
 /* address */
 .dv-note.is-ok { background: var(--ok-s); }
@@ -66,6 +64,30 @@
 .dv-person-t span { font-size: 12.5px; color: var(--ink2); }
 .dv-person-m { min-width: 0; }
 
+/* connection steps (round 010 A) */
+.dv-wz { max-width: 640px; margin: 8px auto 0; display: flex; flex-direction: column; gap: 14px; }
+.dv-wz-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.dv-wz-steps li { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 6px; border-radius: 16px; background: var(--sunk); color: var(--ink2); font-weight: 700; font-size: 13px; }
+.dv-wz-steps b { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); font-size: 12px; }
+.dv-wz-steps b .ui-icon { width: 13px; height: 13px; }
+.dv-wz-steps li.is-on { background: var(--s); color: var(--h); }
+.dv-wz-steps li.is-on b { background: var(--h); color: var(--surface); }
+.dv-wz-steps li.is-ok b { background: var(--ok); color: var(--surface); }
+.dv-wz-card { gap: 12px; padding: 18px 20px; }
+.dv-wz-card h2 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+.dv-wz-card p { margin: 0; color: var(--ink2); }
+.dv-wz-form { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; }
+.dv-wz-hint { font-size: 13px; }
+.dv-wz-log { max-height: 190px; white-space: pre-wrap; word-break: break-all; }
+.dv-wz-log b { color: var(--ink); font-weight: 700; }
+.dv-wz-ct { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 12px; border-radius: 12px; background: var(--surface); }
+.dv-wz-ct .dv-ki { width: 32px; height: 32px; border-radius: 10px; }
+.dv-wz-ct-t { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.dv-wz-ct-t b { font: 700 13px var(--dv-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dv-wz-ct-t span { font-size: 12.5px; color: var(--ink2); }
+.dv-wz-link { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 12px; border-radius: 12px; background: var(--surface); }
+.dv-wz-link span { flex: 1; min-width: 0; font: 12.5px var(--dv-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* widget */
 .dv-w { display: flex; flex-direction: column; gap: 10px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .dv-w-muted { color: var(--ink2); font-size: 13px; margin: 0; }
@@ -87,7 +109,8 @@
   .dv-root .dv-nav-it { width: auto; flex: none; white-space: nowrap; background: var(--sunk); padding: 0 12px 0 6px; }
   .dv-ph h1 { font-size: 22px; }
   .dv-ph .ui-btn { width: 100%; justify-content: center; }
-  .dv-grid3 { grid-template-columns: minmax(0, 1fr); }
+  .dv-grid3, .dv-wz-form { grid-template-columns: minmax(0, 1fr); }
+  .dv-wz-card .dv-acts .ui-btn { flex: 1; justify-content: center; }
   .dv-set { flex-wrap: wrap; }
   .dv-set-c { width: 100%; }
   .dv-person { grid-template-columns: 32px minmax(0, 1fr); }

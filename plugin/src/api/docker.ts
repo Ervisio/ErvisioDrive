@@ -1,6 +1,6 @@
 /**
- * The part of the Docker Engine API this plugin needs, over sdk.api.http('docker', ...): list and inspect containers,
- * run a command in one (exec) and attach a container to the drive's network. The API version is negotiated once
+ * The part of the Docker Engine API this plugin needs, over sdk.api.http('docker', ...): list, inspect and start
+ * containers, run a command in one (exec) and attach a container to the drive's network. The API version is negotiated once
  * with GET /version; paths are passed without the version prefix.
  *
  * Adapted from Ervisio/plugin-caddy (src/api/docker.ts), MIT License, Copyright (c) 2026 Fonlogen.
@@ -103,6 +103,12 @@ export async function connectNetwork(network: string, container: string): Promis
   const err = toError(r);
   if (/already exists in network|already attached|already connected|endpoint with name .* already exists/i.test(err.message)) return false;
   throw err;
+}
+
+/** Starts a container; a container that already runs is fine (Docker answers 304). */
+export async function start(id: string): Promise<void> {
+  const r = await request('POST', `/containers/${checkId(id)}/start`);
+  if (r.status >= 400) throw toError(r);
 }
 
 /* ---------- exec ---------- */

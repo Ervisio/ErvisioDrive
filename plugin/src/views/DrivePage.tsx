@@ -1,12 +1,14 @@
 /**
  * The ErvisioDrive page in Ervisio (round 008, variant A): a header with the drive's state, an inner menu like
- * plugin-docker's, and one section at a time (overview, address and Caddy, limits, people and quotas).
+ * plugin-docker's, and one section at a time (overview, address and Caddy, limits, people and quotas). With no drive
+ * answering, the connection steps of round 010 A (Connect.tsx): start a stopped drive or install one.
  */
 import { useState } from 'react';
 import { getSdk } from '../sdk';
 import * as drive from '../api/drive';
 import { Badge, Button, EmptyState, Icon, Skeleton, type HueId } from '../kit';
 import { Address } from './Address';
+import { Connect } from './Connect';
 import { Limits } from './Limits';
 import { Overview } from './Overview';
 import { People } from './People';
@@ -20,8 +22,6 @@ const SECTIONS: { id: SectionId; hue: HueId; icon: string }[] = [
   { id: 'limits', hue: 'log', icon: 'cog' },
   { id: 'people', hue: 'usr', icon: 'user' },
 ];
-
-export const SOCKET = '/run/ervisio-drive/api.sock';
 
 export function DrivePage() {
   const st = useLoad(drive.status);
@@ -81,22 +81,9 @@ export function DrivePage() {
   );
 }
 
-/** Why the page cannot show the drive: not installed or stopped, rights not unlocked, or another error. */
+/** Why the page cannot show the drive: not installed or stopped (connection steps), rights not unlocked, or another error. */
 export function Blocked({ error, onRetry }: { error: unknown; onRetry(): void }) {
-  if (isMissingError(error)) {
-    return (
-      <div className="dv-card dv-missing">
-        <EmptyState
-          icon="power"
-          hue="file"
-          title={t('missing.title')}
-          text={t('missing.text', { sock: SOCKET })}
-          action={<Button icon="refresh" onClick={onRetry}>{t('missing.retry')}</Button>}
-        />
-        <pre className="dv-snip">{'./setup.sh --ervisio yes\ndocker compose up -d'}</pre>
-      </div>
-    );
-  }
+  if (isMissingError(error)) return <Connect error={error} onRetry={onRetry} />;
   if (isAdminError(error)) {
     return (
       <EmptyState icon="lock" hue="svc" title={t('admin.title')} text={t('admin.text')}

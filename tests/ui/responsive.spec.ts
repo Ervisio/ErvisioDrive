@@ -229,6 +229,12 @@ test("nested folders, explorer view, sorting and bulk selection", async ({
   ).toContainText(root);
   await createFolder("Drafts");
   await expect(table.getByRole("button", { name: "Drafts", exact: true })).toBeVisible();
+  // The sidebar lists top-level folders only (it is hidden on small screens,
+  // so match by attribute rather than by role).
+  const railLink = (name: string) =>
+    page.locator(`.rail-folders a[aria-label="${name}"]`);
+  await expect(railLink(root)).toHaveCount(1);
+  await expect(railLink("Drafts")).toHaveCount(0);
   await noOverflow(page);
   await page.screenshot({
     path: `test-results/screenshots/${info.project.name}-explorer.png`,

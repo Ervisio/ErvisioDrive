@@ -29,6 +29,8 @@ interface ShellFolder {
   slug: string;
   name: string;
   allowedUsers: string[];
+  parent: string | null;
+  ancestors: string[];
 }
 
 // Stable tile colors for personal folders in the rail, like server icons.
@@ -73,7 +75,17 @@ export function AppShell({
     "/api/admin/cdn/folders",
     (url: string) => request(url).then((r) => r.json()),
   );
-  const folders = foldersData?.data ?? [];
+  // The rail lists top-level folders only; a subfolder shared without its
+  // parent counts as top level, since there is no other way to reach it.
+  const allFolders = foldersData?.data ?? [],
+    visible = new Set(allFolders.map((f) => f.slug)),
+    folders = allFolders.filter((f) => !f.parent || !visible.has(f.parent)),
+    // Inside a subfolder, its top-level folder stays highlighted.
+    open = allFolders.find((f) => f.slug === activeFolder),
+    activeRoot =
+      [...(open?.ancestors ?? []), open?.slug].find(
+        (slug) => slug && folders.some((f) => f.slug === slug),
+      ) ?? activeFolder;
   useEffect(() => {
     const listener = (event: Event) =>
       setError((event as CustomEvent<string>).detail);
@@ -225,7 +237,7 @@ export function AppShell({
               key={folder.slug}
               href={`/?folder=${encodeURIComponent(folder.slug)}`}
               aria-label={folder.name}
-              aria-current={activeFolder === folder.slug ? "page" : undefined}
+              aria-current={activeRoot === folder.slug ? "page" : undefined}
               data-tip={folder.name}
               className="rail-item tile"
               style={{ "--tile": tileColor(folder.slug) } as React.CSSProperties}
@@ -322,7 +334,7 @@ export function AppShell({
                 <Link
                   key={folder.slug}
                   href={`/?folder=${encodeURIComponent(folder.slug)}`}
-                  className={`panel-item min-h-12 ${activeFolder === folder.slug ? "active" : ""}`}
+                  className={`panel-item min-h-12 ${activeRoot === folder.slug ? "active" : ""}`}
                 >
                   <Icon icon={folder.allowedUsers.length ? faLock : faFolder} />
                   <span className="truncate">{folder.name}</span>

@@ -79,8 +79,9 @@ jobs:
             s = i < 0 ? s.trimEnd() + "\n\n" + section : s.slice(0, i) + section + "\n" + s.slice(i);
             fs.writeFileSync("CHANGELOG.md", s);
           ' "$new" "$body"
-          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -q -am "Release plugin $new"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -am "Release plugin $new"
           git tag -a "v$new" -m "$new"
           git push origin "HEAD:$GITHUB_REF_NAME" "v$new"
           echo "TAG=v$new" >> "$GITHUB_ENV"

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-10-29
+
+- Subfolders at any depth from the UI, with a clickable path and "up one level".
+- Explorer view: folder tree and a table sortable by name, type, size, created and modified.
+- Sort menu for every view, ascending or descending.
+- Select several files (Shift for a range, Cmd+A for all) and move, download or delete them together.
+- Delete a folder with its subfolders and, optionally, its files.
+- Expandable sidebar, with tooltips when collapsed.
+
 ## 0.2.0 - 2026-10-29
 
 - Works with drives installed without the Ervisio integration: the plugin finds the drive's container in Docker and reaches its API from inside it.

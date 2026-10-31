@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 - 2026-10-31
+
+Download entire folders as streaming ZIP64 archives, preserving subfolders, empty directories, file permissions and decryption. Remove folder shortcuts from the main left sidebar while keeping folder navigation inside the Drive.
+
 ## 0.4.0 - 2026-10-29
 
 - Update the drive from the plugin: when the drive is older, a strip under the header offers the update, then shows its log until the drive runs again (new admin command `update`).

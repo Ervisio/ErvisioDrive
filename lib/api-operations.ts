@@ -183,6 +183,14 @@ export const API_OPERATIONS: ApiOperation[] = [
     handler: "folder",
   },
   {
+    method: "GET",
+    path: "/folders/{slug}/download",
+    scope: "files:download",
+    summary: "Download a folder and its readable descendants as ZIP (also requires folders:read)",
+    handler: "folders",
+    binary: true,
+  },
+  {
     method: "PATCH",
     path: "/folders/{slug}",
     scope: "folders:update",

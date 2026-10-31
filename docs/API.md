@@ -230,3 +230,9 @@ print(response.json()['data'])
 ## Contract maintenance
 
 The operation registry drives routing metadata, permission documentation and OpenAPI generation. Run `npm run docs:generate` after contract changes. Tests validate the OpenAPI document, compare it to the checked-in contract, and exercise scope denials, resource bounds, delegation, role changes, expiry, revocation and Cognito claims against a disposable database.
+
+### Folder ZIP downloads
+
+`GET /api/v1/folders/{slug}/download` requires both `files:download` and `folders:read`. It streams an `application/zip` attachment containing the named folder, readable descendants and empty folders. Expired files and files outside the caller’s ACL or token restrictions are excluded. Stored encrypted files are decrypted during download. Duplicate or unsafe names are made safe and unique in the archive. The session UI exposes the same operation as **Download ZIP** in folder menus.
+
+Archives use ZIP64, supporting large files and more than 65,535 entries. Byte ranges are not supported for generated archives. Downloads stream with bounded file buffers, without staging a ZIP on disk.

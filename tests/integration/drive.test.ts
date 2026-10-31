@@ -524,3 +524,53 @@ test("nested folders inherit access, move without cycles, delete recursively and
   assert.equal(await FolderModel.countDocuments({ slug: { $in: [top.slug, mid.slug, leaf.slug] } }), 0);
   assert.equal(await FileModel.countDocuments({ _id: deep }), 0);
 });
+
+test("folder ZIP preserves nesting, decrypts files and enforces ACLs and token scopes", async () => {
+  const { unzipSync, strFromU8 } = await import("fflate");
+  const { writeStored } = await import("../../lib/crypto-store");
+  const viewer: Actor = { id: new mongoose.Types.ObjectId().toString(), email: "zip@example.com", name: "ZIP", role: "member" };
+  await FolderModel.create([
+    { slug: "zip-root", name: "Progetti", createdBy: admin.id, allowedUsers: [viewer.id] },
+    { slug: "zip-child", name: "Vuota", parent: "zip-root", ancestors: ["zip-root"], createdBy: admin.id },
+    { slug: "zip-nested", name: "Codice", parent: "zip-root", ancestors: ["zip-root"], createdBy: admin.id },
+  ]);
+  const add = async (folder: string, name: string, text: string, extra = {}, encrypted = true) => {
+    const storedName = `${new mongoose.Types.ObjectId()}.txt`;
+    await fs.mkdir(path.dirname(filePath(folder, storedName)), { recursive: true });
+    const encryption = encrypted
+      ? await writeStored(filePath(folder, storedName), Buffer.from(text), admin.id)
+      : (await fs.writeFile(filePath(folder, storedName), text), null);
+    return FileModel.create({ folder, name, storedName, mimeType: "text/plain", size: Buffer.byteLength(text),
+      url: `/api/content/${folder}/${storedName}`, uploadedBy: admin.id, encryption, ...extra });
+  };
+  await add("zip-root", "Readme.txt", "encrypted content");
+  await add("zip-root", "Readme.txt", "duplicate", {}, false);
+  await add("zip-root", "Vuota", "file colliding with directory");
+  await add("zip-nested", "../../escape.txt", "safe name");
+  await add("zip-root", "private.txt", "secret", { allowedUsers: [admin.id] });
+  await add("zip-root", "expired.txt", "old", { expiresAt: new Date(Date.now() - 1000) });
+  await add("other", "outside.txt", "not in folder");
+  const get = async (actor: Actor, slug = "zip-root") => {
+    try {
+      return await driveRequest(request("GET", `/api/admin/cdn/folders/${slug}/download`), ["folders", slug, "download"], actor);
+    } catch (error) { return errorResponse(error); }
+  };
+  const result = await get(viewer);
+  assert.equal(result.status, 200);
+  assert.equal(result.headers.get("content-type"), "application/zip");
+  assert.match(result.headers.get("content-disposition")!, /Progetti.zip/);
+  const entries = unzipSync(new Uint8Array(await result.arrayBuffer()));
+  assert.deepEqual(Object.keys(entries).sort(), ["Progetti/", "Progetti/Codice/", "Progetti/Codice/.._.._escape.txt",
+    "Progetti/Readme (1).txt", "Progetti/Readme.txt", "Progetti/Vuota (1)", "Progetti/Vuota/"].sort());
+  assert.equal(strFromU8(entries["Progetti/Readme.txt"]), "encrypted content");
+  assert.equal(strFromU8(entries["Progetti/Readme (1).txt"]), "duplicate");
+  const outsider = { ...viewer, id: new mongoose.Types.ObjectId().toString() };
+  assert.equal((await get(outsider)).status, 403);
+  assert.equal((await get(viewer, "missing-folder")).status, 404);
+  const api = { id: "zip-token", scopes: ["files:download"], resourceMode: "selected" as const, fileIds: [], folderSlugs: ["zip-root"], expiresAt: "2099-01-01" };
+  assert.equal((await get({ ...viewer, api })).status, 403);
+  const scoped = await get({ ...viewer, api: { ...api, scopes: ["files:download", "folders:read"] } });
+  assert.equal(scoped.status, 200);
+  await scoped.arrayBuffer();
+  assert.equal((await get({ ...viewer, api: { ...api, scopes: ["files:download", "folders:read"], folderSlugs: ["zip-child"] } })).status, 403);
+});

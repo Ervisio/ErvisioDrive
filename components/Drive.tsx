@@ -223,7 +223,7 @@ export default function CdnPage() {
     setMoveFiles(next);
     setMoveDestination(next[0]?.folder ?? "");
   }
-  // The active folder lives in the URL so the shell rail can link to folders.
+  // The active folder lives in the URL for navigation and deep links.
   const router = useRouter(),
     params = useSearchParams();
   const activeFolder = params.get("folder") || "all",
@@ -1083,6 +1083,18 @@ export default function CdnPage() {
   }, [sortMenuOpen]);
 
   const folderMenuProps = (folder: CdnFolderItem): FileMenuItem[] => [
+    {
+      label: t("Download ZIP"),
+      icon: faDownload,
+      action: () => {
+        const link = document.createElement("a");
+        link.href = `/api/admin/cdn/folders/${encodeURIComponent(folder.slug)}/download`;
+        link.download = `${folder.name}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      },
+    },
     {
       label: t("Open"),
       icon: faFolderOpen,

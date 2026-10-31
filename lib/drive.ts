@@ -1,3 +1,4 @@
+import { folderZip } from "@/lib/folder-zip";
 import { editorMaxBytes, getSettings } from "@/lib/settings";
 import { withLocks } from "@/lib/locks";
 import { reserveBytes, releaseBytes } from "@/lib/quota";
@@ -468,6 +469,8 @@ async function dispatchDriveRequest(
       });
     }
   }
+  if (section === "folders" && key && action === "download" && method === "GET")
+    return folderZip(req, actor, key);
   if (section === "folders" && key) {
     if (action === "access") return access(req, actor, "folder", key);
     return withLocks([`folder:${key}`], async () => {

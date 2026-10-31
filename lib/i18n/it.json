@@ -606,5 +606,6 @@
   "{count} items": "{count} elementi",
   "Collapse {name}": "Comprimi {name}",
   "Expand {name}": "Espandi {name}",
-  "1 item": "1 elemento"
+  "1 item": "1 elemento",
+  "Download ZIP": "Scarica ZIP"
 }

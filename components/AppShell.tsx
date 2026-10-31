@@ -33,18 +33,8 @@ interface ShellFolder {
   ancestors: string[];
 }
 
-// Stable tile colors for personal folders in the rail, like server icons.
-const TILE_COLORS = ["#c9500b", "#3f6e8c", "#6b5ca5", "#2f7d5b", "#a8456b"];
-const tileColor = (slug: string) =>
-  TILE_COLORS[[...slug].reduce((sum, c) => sum + c.charCodeAt(0), 0) % TILE_COLORS.length];
 const initials = (value: string) =>
-  value
-    .split(/[\s-_]+/)
-    .filter(Boolean)
-    .map((word) => word[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  value.split(/[\s-_]+/).filter(Boolean).map((word) => word[0]).join("").slice(0, 2).toUpperCase();
 
 export function AppShell({
   actor,
@@ -75,8 +65,7 @@ export function AppShell({
     "/api/admin/cdn/folders",
     (url: string) => request(url).then((r) => r.json()),
   );
-  // The rail lists top-level folders only; a subfolder shared without its
-  // parent counts as top level, since there is no other way to reach it.
+  // The mobile navigation lists accessible top-level folders.
   const allFolders = foldersData?.data ?? [],
     visible = new Set(allFolders.map((f) => f.slug)),
     folders = allFolders.filter((f) => !f.parent || !visible.has(f.parent)),
@@ -231,26 +220,6 @@ export function AppShell({
         </div>
         <div className="rail-folders">
           <span className="rail-sep" />
-          {folders.length > 0 && <p className="rail-heading">{t("Folders")}</p>}
-          {folders.map((folder) => (
-            <Link
-              key={folder.slug}
-              href={`/?folder=${encodeURIComponent(folder.slug)}`}
-              aria-label={folder.name}
-              aria-current={activeRoot === folder.slug ? "page" : undefined}
-              data-tip={folder.name}
-              className="rail-item tile"
-              style={{ "--tile": tileColor(folder.slug) } as React.CSSProperties}
-            >
-              <span className="rail-ini">{initials(folder.name)}</span>
-              <span className="rail-label">{folder.name}</span>
-              {folder.allowedUsers.length > 0 && (
-                <span className="rail-lock">
-                  <Icon icon={faLock} />
-                </span>
-              )}
-            </Link>
-          ))}
           <Link
             href="/?new=folder"
             className="rail-item add"

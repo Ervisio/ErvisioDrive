@@ -480,7 +480,7 @@ export function openApiDocument() {
         description:
           "Workspace-wide listing additionally requires tokens:manage:any.",
       });
-    if (operation.binary)
+    if (operation.handler === "download")
       parameters.push({
         name: "Range",
         in: "header",
@@ -623,7 +623,7 @@ export function openApiDocument() {
         description: "Success",
         content: operation.binary
           ? {
-              "application/octet-stream": {
+              [operation.path === "/folders/{slug}/download" ? "application/zip" : "application/octet-stream"]: {
                 schema: { type: "string", format: "binary" },
               },
             }
@@ -636,7 +636,7 @@ export function openApiDocument() {
         },
       },
     };
-    if (operation.binary)
+    if (operation.handler === "download")
       responses["206"] = {
         description: "Partial content",
         content: {

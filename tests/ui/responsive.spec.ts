@@ -229,11 +229,10 @@ test("nested folders, explorer view, sorting and bulk selection", async ({
   ).toContainText(root);
   await createFolder("Drafts");
   await expect(table.getByRole("button", { name: "Drafts", exact: true })).toBeVisible();
-  // The sidebar lists top-level folders only (it is hidden on small screens,
-  // so match by attribute rather than by role).
+  // Folder shortcuts must stay out of the main rail at every viewport.
   const railLink = (name: string) =>
     page.locator(`.rail-folders a[aria-label="${name}"]`);
-  await expect(railLink(root)).toHaveCount(1);
+  await expect(railLink(root)).toHaveCount(0);
   await expect(railLink("Drafts")).toHaveCount(0);
   await noOverflow(page);
   await page.screenshot({
@@ -260,6 +259,13 @@ test("nested folders, explorer view, sorting and bulk selection", async ({
     .filter({ hasText: root })
     .getByRole("button", { name: "Folder actions" })
     .click();
+  const downloadReady = page.waitForEvent("download");
+  await page.getByRole("menuitem", { name: "Download ZIP" }).click();
+  const download = await downloadReady;
+  expect(download.suggestedFilename()).toBe(`${root}.zip`);
+  expect(await download.failure()).toBeNull();
+  await page.getByRole("row").filter({ hasText: root })
+    .getByRole("button", { name: "Folder actions" }).click();
   await page.getByRole("menuitem", { name: "Delete folder" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText("1 subfolders");

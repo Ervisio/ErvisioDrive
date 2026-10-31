@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2 - 2026-10-31
+
+Preserve Docker discovery when the Drive socket is missing or refuses connections. Show the existing container and actual connection error, offer an update, and never offer a fresh installation when discovery could not complete. Add regression coverage for the running 0.4.0 container with ENOENT.
+
 ## 0.5.1 - 2026-10-31
 
 Recognize existing Docker Drive installations without PLUGIN_SOCKET and with renamed services or containers. Offer an update to connect legacy installations instead of prompting for a fresh install; preserve the existing Compose folder and skip auxiliary or disappearing containers.

@@ -1,6 +1,6 @@
 {
   "name": "ervisiodrive",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "Private drive with local/Google/Cognito authentication, granular API tokens and progressive storage",
   "scripts": {

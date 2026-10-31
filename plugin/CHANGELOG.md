@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 - 2026-10-31
+
+Recognize existing Docker Drive installations without PLUGIN_SOCKET and with renamed services or containers. Offer an update to connect legacy installations instead of prompting for a fresh install; preserve the existing Compose folder and skip auxiliary or disappearing containers.
+
 ## 0.5.0 - 2026-10-31
 
 Download entire folders as streaming ZIP64 archives, preserving subfolders, empty directories, file permissions and decryption. Remove folder shortcuts from the main left sidebar while keeping folder navigation inside the Drive.

@@ -38,11 +38,12 @@ export function DrivePage() {
     );
   }
   if (!st.data) {
-    const existing = st.error instanceof drive.DriveError ? st.error.located?.app : null;
+    const discovery = st.error instanceof drive.DriveError ? st.error.located : undefined;
+    const existing = discovery?.app;
     return (
       <div className="dv-root hue-file">
         {/* Legacy Docker installs can be updated before their plugin API is reachable. */}
-        <Update version={existing?.workingDir && !existing.integration ? null : getSdk().plugin.version} onDone={st.reload} />
+        <Update version={existing?.workingDir && (!existing.integration || discovery?.socketUnavailable) ? null : getSdk().plugin.version} onDone={st.reload} />
         <Blocked error={st.error} onRetry={st.reload} />
       </div>
     );

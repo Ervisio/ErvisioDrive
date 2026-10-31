@@ -8,7 +8,7 @@ const { locate } = await import('../src/api/locate.ts');
 const drive = await import('../src/api/drive.ts');
 const SERVICE = 'com.docker.compose.service', PROJECT = 'com.docker.compose.project', DIR = 'com.docker.compose.project.working_dir';
 const id = (n: number) => n.toString(16).padStart(64, '0');
-let containers: any[], inspected: string[];
+let containers: any[], inspected: string[], socketError: string;
 const reply = (body: unknown, status = 200) => ({ status, body: JSON.stringify(body), json: () => body });
 function container(n: number, opts: { service?: string | null; image?: string; name?: string; project?: string; env?: string[]; running?: boolean; gone?: boolean } = {}) {
   return { Id: id(n), Image: opts.image ?? 'ervisiodrive:local', Names: [opts.name ?? '/custom-app'],
@@ -16,11 +16,19 @@ function container(n: number, opts: { service?: string | null; image?: string; n
     Labels: { ...(opts.service === null ? {} : { [SERVICE]: opts.service ?? 'app' }), [PROJECT]: opts.project ?? 'custom', [DIR]: '/opt/stacks/ervisiodrive' }, opts };
 }
 beforeEach(() => {
-  containers = []; inspected = []; docker.resetDocker(); drive.resetRoute();
+  containers = []; inspected = []; socketError = ""; docker.resetDocker(); drive.resetRoute();
   setSdk({ api: { http: async (name: string, req: { path: string }) => {
     if (name === 'drive') throw Object.assign(new Error('No host socket'), { code: 'unavailable' });
     if (req.path === '/version') return reply({ ApiVersion: '1.47' });
     if (req.path.endsWith('/containers/json')) return reply(containers);
+    if (socketError) {
+      if (/\/containers\/[a-f0-9]+\/exec$/.test(req.path)) return reply({ Id: 'e'.repeat(64) });
+      if (req.path.endsWith('/exec/' + 'e'.repeat(64) + '/start')) {
+        const text = JSON.stringify({ error: socketError });
+        return { ...reply({}), bytes: () => new TextEncoder().encode(text) };
+      }
+      if (req.path.endsWith('/exec/' + 'e'.repeat(64) + '/json')) return reply({ ExitCode: 0 });
+    }
     const c = containers.find((c) => req.path.endsWith(`/containers/${c.Id}/json`));
     if (c) {
       inspected.push(c.Id);
@@ -63,6 +71,21 @@ test('status exposes a legacy container instead of claiming it is not installed'
   await assert.rejects(drive.status(), (error: unknown) => {
     assert.ok(error instanceof drive.DriveError);
     assert.equal(error.located?.app?.id, id(1)); assert.equal(error.located?.app?.integration, false);
+    return true;
+  });
+});
+
+test('a running 0.4.0 container with a missing socket remains detected after both connection attempts', async () => {
+  containers = [container(1, { project: 'ervisiodrive', name: '/ervisiodrive-app-1', env: ['PLUGIN_SOCKET=/run/ervisio-drive/api.sock'] })];
+  socketError = 'connect ENOENT /run/ervisio-drive/api.sock';
+  await assert.rejects(drive.status(), (error: unknown) => {
+    assert.ok(error instanceof drive.DriveError);
+    assert.equal(error.kind, 'unavailable');
+    assert.equal(error.located?.app?.name, 'ervisiodrive-app-1');
+    assert.equal(error.located?.app?.workingDir, '/opt/stacks/ervisiodrive');
+    assert.equal(error.located?.socketUnavailable, true);
+    assert.equal(error.located?.connectionError, socketError);
+    assert.equal(inspected.length, 2);
     return true;
   });
 });

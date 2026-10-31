@@ -87,10 +87,12 @@ function fromResponse(r: Answer): DriveError {
 
 /** The container the drive answered from last time; undefined while the host socket works (or nothing was tried). */
 let container: string | undefined;
+let containerLocation: Located | undefined;
 
 /** Forget the route, for example after the drive was started or installed. */
 export const resetRoute = () => {
   container = undefined;
+  containerLocation = undefined;
 };
 
 function queryString(query?: Query): string {
@@ -114,6 +116,7 @@ async function sendDocker(method: string, path: string, opts: { query?: Query; b
       }
       if (!found.app?.running || !found.app.integration) throw new DriveError('unavailable', 'ErvisioDrive does not answer', 0, found);
       container = found.app.id;
+      containerLocation = found;
     }
     try {
       return await viaContainer(container, method, `${path}${queryString(opts.query)}`, opts.body);
@@ -121,7 +124,11 @@ async function sendDocker(method: string, path: string, opts: { query?: Query; b
       if (!(e instanceof ContainerError)) throw fromPluginError(e);
       container = undefined;
       if (!e.lost) throw new DriveError('failed', e.message);
-      if (attempt > 0) throw new DriveError('unavailable', e.message);
+      if (attempt > 0) {
+        const found = containerLocation && { ...containerLocation, connectionError: e.message,
+          socketUnavailable: /ENOENT|ECONNREFUSED|EACCES/.test(e.message) };
+        throw new DriveError('unavailable', e.message, 0, found);
+      }
     }
   }
 }

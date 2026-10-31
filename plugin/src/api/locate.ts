@@ -28,6 +28,9 @@ export interface Located {
   docker: boolean;
   /** The drive's app container, null when there is none. */
   app: DriveContainer | null;
+  /** A found container could not be reached; discovery itself succeeded. */
+  connectionError?: string;
+  socketUnavailable?: boolean;
 }
 
 /** The answer of a request sent through the container, shaped like sdk.api.http's. */

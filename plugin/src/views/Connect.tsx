@@ -135,8 +135,8 @@ export function Connect({ error, onRetry }: { error: unknown; onRetry(): void })
     const app = located.app;
     body = (
       <>
-        <h2>{t(!app.integration ? 'cn.legacy.title' : app.running ? 'cn.starting.title' : 'cn.stopped.title')}</h2>
-        <p>{t(!app.integration ? (app.workingDir ? 'cn.legacy.text' : 'cn.legacy.noFolder') : app.running ? 'cn.starting.text' : 'cn.stopped.text')}</p>
+        <h2>{t(located.socketUnavailable ? 'cn.socket.title' : !app.integration ? 'cn.legacy.title' : app.running ? 'cn.starting.title' : 'cn.stopped.title')}</h2>
+        <p>{t(located.socketUnavailable ? 'cn.socket.text' : !app.integration ? (app.workingDir ? 'cn.legacy.text' : 'cn.legacy.noFolder') : app.running ? 'cn.starting.text' : 'cn.stopped.text')}</p>
         <div className="dv-wz-ct">
           <span className="dv-ki hue-term"><Icon name="server" /></span>
           <div className="dv-wz-ct-t">
@@ -145,6 +145,7 @@ export function Connect({ error, onRetry }: { error: unknown; onRetry(): void })
           </div>
           <Badge tone={app.running ? 'info' : 'warn'} dot>{t(app.running ? 'cn.badge.starting' : 'cn.badge.stopped')}</Badge>
         </div>
+        {located.connectionError && <div className="dv-note is-warn" role="alert"><Icon name="alert" /><span>{located.connectionError}</span></div>}
         <div className="dv-acts">
           {!app.running && app.integration && <Button variant="primary" icon="play" loading={busy} onClick={start}>{t('cn.start')}</Button>}
           {searchBtn}
@@ -197,6 +198,10 @@ export function Connect({ error, onRetry }: { error: unknown; onRetry(): void })
         <div className="dv-acts">{searchBtn}</div>
       </>
     );
+  } else if (!located) {
+    at = 0;
+    done = 0;
+    body = <><h2>{t('cn.searchFailed')}</h2><p>{errText(error)}</p><div className="dv-acts">{searchBtn}</div></>;
   } else {
     body = (
       <>

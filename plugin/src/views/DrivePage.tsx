@@ -38,10 +38,11 @@ export function DrivePage() {
     );
   }
   if (!st.data) {
+    const existing = st.error instanceof drive.DriveError ? st.error.located?.app : null;
     return (
       <div className="dv-root hue-file">
-        {/* The plugin's own version: only a running or failed update shows, never the offer. */}
-        <Update version={getSdk().plugin.version} onDone={st.reload} />
+        {/* Legacy Docker installs can be updated before their plugin API is reachable. */}
+        <Update version={existing?.workingDir && !existing.integration ? null : getSdk().plugin.version} onDone={st.reload} />
         <Blocked error={st.error} onRetry={st.reload} />
       </div>
     );

@@ -135,8 +135,8 @@ export function Connect({ error, onRetry }: { error: unknown; onRetry(): void })
     const app = located.app;
     body = (
       <>
-        <h2>{t(app.running ? 'cn.starting.title' : 'cn.stopped.title')}</h2>
-        <p>{t(app.running ? 'cn.starting.text' : 'cn.stopped.text')}</p>
+        <h2>{t(!app.integration ? 'cn.legacy.title' : app.running ? 'cn.starting.title' : 'cn.stopped.title')}</h2>
+        <p>{t(!app.integration ? (app.workingDir ? 'cn.legacy.text' : 'cn.legacy.noFolder') : app.running ? 'cn.starting.text' : 'cn.stopped.text')}</p>
         <div className="dv-wz-ct">
           <span className="dv-ki hue-term"><Icon name="server" /></span>
           <div className="dv-wz-ct-t">
@@ -146,7 +146,7 @@ export function Connect({ error, onRetry }: { error: unknown; onRetry(): void })
           <Badge tone={app.running ? 'info' : 'warn'} dot>{t(app.running ? 'cn.badge.starting' : 'cn.badge.stopped')}</Badge>
         </div>
         <div className="dv-acts">
-          {!app.running && <Button variant="primary" icon="play" loading={busy} onClick={start}>{t('cn.start')}</Button>}
+          {!app.running && app.integration && <Button variant="primary" icon="play" loading={busy} onClick={start}>{t('cn.start')}</Button>}
           {searchBtn}
         </div>
       </>

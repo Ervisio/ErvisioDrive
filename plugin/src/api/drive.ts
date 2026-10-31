@@ -112,7 +112,7 @@ async function sendDocker(method: string, path: string, opts: { query?: Query; b
       } catch (e) {
         throw fromPluginError(e);
       }
-      if (!found.app?.running) throw new DriveError('unavailable', 'ErvisioDrive does not answer', 0, found);
+      if (!found.app?.running || !found.app.integration) throw new DriveError('unavailable', 'ErvisioDrive does not answer', 0, found);
       container = found.app.id;
     }
     try {

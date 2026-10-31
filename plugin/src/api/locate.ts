@@ -19,6 +19,8 @@ export interface DriveContainer {
   project: string;
   /** Host folder the Compose project was started from (its compose.yaml), '' when unknown. */
   workingDir: string;
+  /** Legacy installations must be updated before their plugin API can answer. */
+  integration: boolean;
 }
 
 export interface Located {
@@ -57,23 +59,39 @@ export async function locate(): Promise<Located> {
     if (noDocker(e)) return { docker: false, app: null };
     throw e;
   }
-  const candidates = list.filter((c) => c.Labels?.[SERVICE] === 'app' && /ervisio-?drive/i.test(`${c.Image} ${c.Labels?.[PROJECT] ?? ''}`));
-  // A running container first, then any other; the image alone could be a fork, so the socket variable decides.
+  const branded = (value: string) => /ervisio[-_]?drive/i.test(value);
+  const auxiliary = new Set(['mongo', 'cleanup', 'bootstrap', 'storage-init']);
+  const candidates = list.filter((c) => {
+    if (auxiliary.has(c.Labels?.[SERVICE] ?? '')) return false;
+    return branded([c.Image, ...(c.Names ?? []), c.Labels?.[PROJECT] ?? ''].join(' '));
+  });
   candidates.sort((a, b) => Number(b.State === 'running') - Number(a.State === 'running'));
+  let legacy: DriveContainer | null = null;
   for (const c of candidates) {
-    const info = await docker.inspect(c.Id);
-    if (!(info.Config.Env ?? []).some((v) => v.startsWith('PLUGIN_SOCKET='))) continue;
-    return {
-      docker: true,
-      app: {
-        id: c.Id,
-        name: info.Name.replace(/^\//, ''),
-        running: info.State.Running,
-        project: c.Labels?.[PROJECT] ?? '',
-        workingDir: c.Labels?.[WORKING_DIR] ?? '',
-      },
+    let info: docker.ContainerInspect;
+    try {
+      info = await docker.inspect(c.Id);
+    } catch (e) {
+      // A Compose rebuild may replace a container between listing and inspecting it.
+      if (e instanceof docker.DockerError && e.status === 404) continue;
+      throw e;
+    }
+    const labels = { ...c.Labels, ...info.Config.Labels };
+    if (auxiliary.has(labels[SERVICE] ?? '')) continue;
+    const app: DriveContainer = {
+      id: c.Id,
+      name: info.Name.replace(/^\//, ''),
+      running: info.State.Running,
+      project: labels[PROJECT] ?? '',
+      workingDir: labels[WORKING_DIR] ?? '',
+      integration: (info.Config.Env ?? []).some((v) => /^PLUGIN_SOCKET=.+/.test(v)),
     };
+    // A missing socket variable means legacy installation, not "not installed".
+    // Prefer a running server over a stopped leftover from a previous installation.
+    if (app.integration && (app.running || !legacy?.running)) return { docker: true, app };
+    legacy ??= app;
   }
+  if (legacy) return { docker: true, app: legacy };
   return { docker: true, app: null };
 }
 
